@@ -8,9 +8,9 @@ Implementation of the paper **"Postprocessing of Convection-Permitting Precipita
 
 To reproduce the experiments, you need to download the required data and models:
 
-1. **Download Data**: All required data can be downloaded from [Google Drive](https://drive.com/link).
+1. **Download Data**: All required data can be downloaded from [Google Drive](https://drive.google.com/drive/folders/1FEzji7PpGvqXzRPBh961NDqujRgPf7JZ?usp=sharing).
    - Place the station information CSV file, `MixtureNewAemetAgrocab_PrHourly20190715_20200821.csv`, inside the `data/` folder.
-   - Place the ensemble WRF results inside the folder `data/temp_wrf_data_for_model`.
+   - Place the unzipped `.rar` data from the ensemble WRF set inside the folder `data/temp_wrf_data_for_model`.
 
 2. **Pretrained Models**: To use pretrained models (`.pt` files), place them in their corresponding folder under `Laboratory/result_logs`.
 
