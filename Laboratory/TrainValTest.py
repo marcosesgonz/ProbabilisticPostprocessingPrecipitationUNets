@@ -14,7 +14,7 @@ import argparse
 
 
 def execute_model(project_ref, name_experim,  epochs = 35, optimizer = 'sgd', use_weights = False, normalize_data = True, pca_data = True, feat_selec_data = False,
-                     batch_size = 8, lr = 0.01, run_id = None, reduct_factor = 1):
+                     down_selec_data = False, batch_size = 8, lr = 0.01, run_id = None, reduct_factor = 1):
     
     wandb.login() #Login in wandb 
     u.set_seed() #set the seed for reproducibility
@@ -48,10 +48,16 @@ def execute_model(project_ref, name_experim,  epochs = 35, optimizer = 'sgd', us
         elif feat_selec_data:
             print('Applying Feat.Selec')
             train_set.apply_feature_selec(11)
-            #feat_selec_mask_ds_XLowerCRPSVal = [False, True, True, False, False, True, False, True, False, False, False, False, True, False, False, True, False, False, False, False, True, False, True, True, True, True]
-            
             val_set.apply_feature_selec(feat_selec_mask = train_set.feat_selec_mask)  
             test_set.apply_feature_selec(feat_selec_mask = train_set.feat_selec_mask)  
+            n_inp_channels = np.sum(train_set.feat_selec_mask)
+        elif down_selec_data:
+            print('Applying Down Selection')
+            #Edit this mask with ur own down selection mask (or your own feature selection mask). This default mask is obtained as described in the down selection method of the study.
+            feat_selec_mask_ds_XLowerCRPSVal = [False, True, True, False, False, True, False, True, False, False, False, False, True, False, False, True, False, False, False, False, True, False, True, True, True, True]
+            train_set.apply_feature_selec(feat_selec_mask = feat_selec_mask_ds_XLowerCRPSVal)
+            val_set.apply_feature_selec(feat_selec_mask = feat_selec_mask_ds_XLowerCRPSVal)  
+            test_set.apply_feature_selec(feat_selec_mask = feat_selec_mask_ds_XLowerCRPSVal)  
             n_inp_channels = np.sum(train_set.feat_selec_mask)
         else:
             n_inp_channels = train_set.num_ensembles + 1
@@ -207,12 +213,13 @@ def parse_args():
     parser.add_argument('--normalize', action = 'store_true', help = 'Normalize data')
     parser.add_argument('--PCA', action = 'store_true', help = 'Apply PCA along ensemble precipitations')
     parser.add_argument('--FeatSelec', action = 'store_true', help = 'Apply Feature selection')
+    parser.add_argument('--DownSelec', action = 'store_true', help = 'Apply Down selection')
     parser.add_argument('--RedFact', type=int, default = 1, help = 'Reduction factor(int) to Unet nºfilters per channel (default: 1, no reduction)')
     return parser.parse_args()
 
 
 if __name__ == '__main__':
     args = parse_args()
-    execute_model(project_ref = args.project_ref, name_experim = args.name_experim, epochs = args.epochs, normalize_data = args.normalize,
+    execute_model(project_ref = args.project_ref, name_experim = args.name_experim, epochs = args.epochs, normalize_data = args.normalize, down_selec_data = args.DownSelec,
                   feat_selec_data = args.FeatSelec, pca_data = args.PCA, optimizer = args.optimizer, batch_size = args.batch_size, lr = args.lr,
                   use_weights= args.use_weights,run_id = args.run_id, reduct_factor = args.RedFact)
