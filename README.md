@@ -14,7 +14,7 @@ To reproduce the experiments, you need to download the required data and models:
 
 2. **Pretrained Models**: To use pretrained models (`.pt` files), place them in their corresponding folder under `Laboratory/result_logs`.
 
-3. **Classical Methods Data**: To generate data for classical methods, run the script `Create_csv_for_classic_methods.py`. The scripts for evaluating classical methods are located in `Laboratory/Calculation_classical_methods.ipynb`.
+3. **Classical Methods Data**: To generate data for classical methods, run the script `data_manipulation_scripts/create_csv_for_classic_methods.py`. The scripts for evaluating classical methods are located in `Laboratory/Calculation_classical_methods.ipynb`.
 
 ---
 

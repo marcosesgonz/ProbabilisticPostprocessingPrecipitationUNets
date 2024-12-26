@@ -12,22 +12,21 @@ from captum.attr import IntegratedGradients
 from Datasets import WRFdataset, desired_configs
 import numpy as np
 from models.UNet import UNet
-from prob_scores import CRPS_mine
-from utils import test_model_all_stations, CRPS_CSGDloss
+from utils import test_model_all_stations, CRPS_CSGDloss,CRPS_mine
 import matplotlib.pyplot as plt
 import pandas as pd
 
+unets_weights_path = os.path.join(main_path,'Laboratory','result_logs')
+def max_weights_path(unet_filename):
+      return os.path.join(unets_weights_path, unet_filename,'checkpoint_max.pt')
+
+# First, the instances of data which are going to be used to compute attributions are obtained. 
 train_set = WRFdataset(data_subset = 'train', group_configs = desired_configs , station_split = False)
 train_set.normalize_data()
 mean_og_data, std_og_data = train_set.mean_og_data, train_set.std_og_data
 data_normalized = WRFdataset(data_subset='test',station_split=False, group_configs = desired_configs)
 data_normalized.normalize_data(train_set.mean_og_data, train_set.std_og_data)
-
-unet_model = UNet(n_inp_channels=26,n_outp_channels=3,bottleneck = False)
-model_data = torch.load('/disk/barbusano/barbusano3/Laboratory/result_logs/b32_lr0.001_b32_lr1e-3_AdamW_Norm_AllChannels_SqrtStdReg/checkpoint_max.pt')
-unet_model.load_state_dict(model_data['net'])
 crps_loss = CRPS_CSGDloss()
-unet_model.eval()
 
 data = WRFdataset(data_subset='test',station_split=False, group_configs = desired_configs)
 dataset = defaultdict(list)
@@ -44,13 +43,6 @@ for idx in range(len(data)):
     dataset['CRPS_Ensemble'].append(crps_ensemb)
     
     X_norm, y = data_normalized[idx]
-    with torch.no_grad():
-        outp = unet_model(torch.tensor(X_norm).unsqueeze(0))
-        outp_centers = outp[:,:, y_postions - data.crop_y[0], x_positions - data.crop_x[0]]
-        targets_batched = torch.tensor(targets).unsqueeze(0)
-        crps_unet = crps_loss(outp_centers, targets_batched )
-
-    dataset['CRPS_UnetAll'].append(crps_unet)
     dataset['SumPrecWeatStat'].append(np.sum(targets))
     dataset['SumPrecWRFStat'].append(np.sum(np.mean(ensemble, axis = 0)))
 
@@ -59,7 +51,7 @@ print(crps_dataset.columns)
 
 ds_sorted = crps_dataset.sort_values(by='SumPrecWRF',ascending=False)
 print(ds_sorted)
-selected_instances = ds_sorted.iloc[0:3,:]
+selected_instances = ds_sorted.iloc[0:3,:] # The three WRF rainniest hours are selected to compute attributions 
 selected_indices = list(ds_sorted.index[0:3])
 print(f' Instance selected:{selected_instances}\n Instance idx: {selected_indices} ')
 
@@ -67,7 +59,9 @@ print(f' Instance selected:{selected_instances}\n Instance idx: {selected_indice
 print(np.nansum(data[selected_indices[0]][1]),crps_dataset[['SumPrecWeatStat']].iloc[selected_indices[0]].values)
 
 unet_model = UNet(n_inp_channels=26,n_outp_channels=3,bottleneck = False)
-model_data = torch.load('/disk/barbusano/barbusano3/Laboratory/result_logs/b32_lr0.001_b32_lr1e-3_AdamW_Norm_AllChannels_SqrtStdReg/checkpoint_max.pt')
+
+
+model_data = torch.load(max_weights_path('b32_lr0.001_b32_lr1e-3_AdamW_Norm_AllChannels_SqrtStdReg'))
 unet_model.load_state_dict(model_data['net'])
 
 crps_loss = CRPS_CSGDloss()
@@ -135,8 +129,7 @@ for idx,(x,y) in enumerate(positions):
 #------------------------------------------------------PCA--------------------------------------
 
 print('Attribution calculation for Unet-PCA:')
-unet_model = UNet(n_inp_channels=11,n_outp_channels=3,bottleneck = False)
-model_data = torch.load('/disk/barbusano/barbusano3/Laboratory/result_logs/b32_lr0.001_b32_lr1e-3_AdamW_Norm_11PCA_SqrtStdReg_NoBottleNeck/checkpoint_max.pt')
+model_data = torch.load(max_weights_path('b32_lr0.001_b32_lr1e-3_AdamW_Norm_11PCA_SqrtStdReg_NoBottleNeck'))
 unet_model.load_state_dict(model_data['net'])
 unet_model.eval()
 
@@ -188,7 +181,7 @@ for idx,(x,y) in enumerate(positions):
 
 print('Attribution calculation for Unet-FS:')
 unet_model = UNet(n_inp_channels=11,n_outp_channels=3,bottleneck = False)
-model_data = torch.load('/disk/barbusano/barbusano3/Laboratory/result_logs/b32_lr0.001_b32_lr1e-3_AdamW_Norm_11FeatSelec_SqrtStdReg_NoBottleNeck/checkpoint_max.pt')
+model_data = torch.load(max_weights_path('b32_lr0.001_b32_lr1e-3_AdamW_Norm_11FeatSelec_SqrtStdReg_NoBottleNeck'))
 unet_model.load_state_dict(model_data['net'])
 unet_model.eval()
 
@@ -238,7 +231,7 @@ for idx,(x,y) in enumerate(positions):
 #-------------------------------------------------DS-----------------------------------
 print('Calculando atribuciones Unet-DS:')
 unet_model = UNet(n_inp_channels=11,n_outp_channels=3,bottleneck = False)
-model_data = torch.load('/disk/barbusano/barbusano3/Laboratory/result_logs/b32_lr0.001_b32_lr1e-3_AdamW_Norm_11DownSelectXLowerCRPSVal_SqrtStdReg/checkpoint_max.pt')
+model_data = torch.load(max_weights_path('b32_lr0.001_b32_lr1e-3_AdamW_Norm_11DownSelectXLowerCRPSVal_SqrtStdReg/checkpoint_max.pt'))
 unet_model.load_state_dict(model_data['net'])
 unet_model.eval()
 

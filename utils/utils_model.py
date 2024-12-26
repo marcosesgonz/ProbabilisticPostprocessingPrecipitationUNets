@@ -48,15 +48,15 @@ def train_model(net, tr_loader, data, mask_centers_tr, optimizer, device,
             else:
                 frame,targets = data_batch
             optimizer.zero_grad()  
-            #Hacemos el filtro de las centrales meteorológicas que tienen nan
+            # Mask of non-missingvalues of meteorological stations data.
             no_na_mask = ~torch.isnan(targets) 
-            #Máscara con las estaciones que están en train pero que también no son NA. Operación: [N_stations] AND [N, N_stations] -> [N, N_stations] 
+            # Adding to the mask only the stations in the train set. Dimensions of operation: [N_stations] AND [N, N_stations] -> [N, N_stations] 
             mask_tr_ctrs = np.logical_and(mask_centers_tr, no_na_mask).bool() #Comprobado
-            #Con el torch.nonzero obtenemos las posiciones en la dimensión del batch y en el de las estaciones donde hay True. p.e: batch_tr_positions=[0,0,0,0,1,1,1...] y indices_tr_mask_stations=[2,3,6,7,2,3,7...]
+            #With torch.nonzero we obtain the indices in the batch dimension and in the dimensions where values are True. For example: batch_tr_positions=[0,0,0,0,1,1,1...] and indices_tr_mask_stations=[2,3,6,7,2,3,7...]
             batch_tr_positions, indices_tr_mask_stations = torch.nonzero(mask_tr_ctrs, as_tuple = True) 
             num_points_to_train = len(batch_tr_positions) 
             
-            x_y_tr = data.meteo_centers_info['x_y_d04'][indices_tr_mask_stations] #Comprobado. Aunque se van repitiendo índices sucesivamente, es broadcastable
+            x_y_tr = data.meteo_centers_info['x_y_d04'][indices_tr_mask_stations] #Is broadcastable
             x_tr_positions, y_tr_postions = x_y_tr[...,0], x_y_tr[...,1]
     
             targets_tr_ctrs = targets[mask_tr_ctrs]
@@ -65,7 +65,8 @@ def train_model(net, tr_loader, data, mask_centers_tr, optimizer, device,
             targets_tr_ctrs = targets_tr_ctrs.to(device)
             
             output = net(frame,hours) if data.return_hour else net(frame)
-            output_tr_ctrs = output[batch_tr_positions, :, y_tr_postions - data.crop_y[0], x_tr_positions - data.crop_x[0] ]
+            # We extract from model output the positions corresponding to the meteorological stations
+            output_tr_ctrs = output[batch_tr_positions, :, y_tr_postions - data.crop_y[0], x_tr_positions - data.crop_x[0] ] 
             loss = criterion(output_tr_ctrs, targets_tr_ctrs)
             loss.backward()
             optimizer.step()
@@ -82,6 +83,7 @@ def train_model(net, tr_loader, data, mask_centers_tr, optimizer, device,
         
         return train_loss
 
+# Same funcionality than 'train_model' but it isnt used an additional mask to only select stations tagged as train.
 def train_model_all_stations(net, tr_loader, data, optimizer, device, lr_scheduler = None, loss_func = "crps", weights = None, bin_edges = None):
         net.train()
         train_loss, train_samples = 0, 0
@@ -131,18 +133,13 @@ def train_model_all_stations(net, tr_loader, data, optimizer, device, lr_schedul
         
         return train_loss
 
-def test_model(net, tst_loader, data, mask_centers_tst, device , loss_func = 'crps'):
+# Test the model in masked stations (test stations)
+def test_model(net, tst_loader, data, mask_centers_tst, device):
         net.eval()
 
         test_loss, test_bs_loss, test_rmse_loss,  test_samples = 0, 0, 0, 0
-        
-        if loss_func == 'crps':
-            criterion = CRPS_CSGDloss()
-        elif loss_func == 'mse':
-            criterion = nn.MSELoss()
-        else:
-            raise NotImplementedError
-        
+        criterion = CRPS_CSGDloss()
+
         with torch.no_grad():
             for data_batch in tst_loader:
                 if data.return_hour:
@@ -183,6 +180,7 @@ def test_model(net, tst_loader, data, mask_centers_tst, device , loss_func = 'cr
         test_bs_loss /= test_samples
         return test_loss, test_rmse_loss, test_bs_loss
 
+# Test model in all available stations
 def test_model_all_stations(net, tst_loader, data, device , per_hour = False):
     net.eval()
     calculate_crps = CRPS_CSGDloss()
@@ -266,8 +264,9 @@ def test_model_all_stations(net, tst_loader, data, device , per_hour = False):
                 test_rmse_loss[hour] += test_rmse_loss_batch
                 test_bs_loss[hour] += test_bs_loss_batch
                 nsamples_loss[hour] += num_points_to_test
-            
-        return test_loss, test_rmse_loss, test_bs_loss, nsamples_loss
+        
+        # Respectively, CRPS, RMSE, BS and Number of samples
+        return test_loss, test_rmse_loss, test_bs_loss, nsamples_loss 
 
 
 #Implementation of CDF Gamma Backward method. It is necessary for CRPS loss function.

@@ -1,10 +1,17 @@
+import os 
+import sys
+main_path = os.path.abspath(os.path.join(__file__,'..','..'))
+sys.path.append(main_path)
+print(main_path)
+from Datasets import WRFdataset
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from sklearn.model_selection import StratifiedShuffleSplit
+import json
 
 def stratified_split_dates(dataset):
-    #dataset = WRFdataset(data_subset='all',group_configs=desired_configs, station_split = False)
+    dataset = WRFdataset(data_subset='all')
     data = dataset.meteo_data
     data['mean_prec'] = data.iloc[:,1:].mean(axis=1, skipna=True)
     # Ajustar las horas para la agrupación para que coincidan con los días de inicialización de los modelos WRF
@@ -52,6 +59,5 @@ def stratified_split_dates(dataset):
         'test_dates': test_dates
     }
 
-    #with open('/disk/barbusano/barbusano3/data/split_dates.json', 'w') as f:
-    #    json.dump(split_dates, f)
-
+    with open(os.path.join(main_path,'data','split_dates.json'), 'w') as f:
+        json.dump(split_dates, f)

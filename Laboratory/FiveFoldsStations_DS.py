@@ -7,7 +7,7 @@ import wandb
 import numpy as np
 from captum.attr import IntegratedGradients
 from models.UNet import UNet
-from prob_scores import CRPS_mine
+from utils import CRPS_mine
 from collections import defaultdict
 import utils as u
 import pandas as pd

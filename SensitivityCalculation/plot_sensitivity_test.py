@@ -6,10 +6,11 @@ import numpy as np
 from Datasets import WRFdataset,desired_configs
 import matplotlib.pyplot as plt
 
-data_26 = np.load('/disk/barbusano/barbusano3/data/Sensitivity_UnetAllChSab5_XMaxSumBatch3.npz')
-data_11pca = np.load('/disk/barbusano/barbusano3/data/Sensitivity_Unet11PCA_XMaxSumBatch3.npz')
-data_11fs = np.load('/disk/barbusano/barbusano3/data/Sensitivity_Unet11FS_XMaxSumBatch3.npz')
-data_11ds = np.load('/disk/barbusano/barbusano3/data/Sensitivity_Unet11DS_XMaxSumBatch3.npz')
+data_path = os.path.join(main_path,'data')
+data_26 = np.load(os.path.join(data_path,'Sensitivity_UnetAllChSab5_XMaxSumBatch3.npz'))
+data_11pca = np.load(os.path.join(data_path,'Sensitivity_Unet11PCA_XMaxSumBatch3.npz'))
+data_11fs = np.load(os.path.join(data_path,'Sensitivity_Unet11FS_XMaxSumBatch3.npz'))
+data_11ds = np.load(os.path.join(data_path,'Sensitivity_Unet11DS_XMaxSumBatch3.npz'))
 
 def normalize(data_npz):
     value = np.abs(data_npz['ch0']) + np.abs(data_npz['ch1']) + np.abs(data_npz['ch2'])
@@ -31,7 +32,7 @@ attr_PCA = attr_11pca[:-1]
 attr_HGT = attr_11pca[-1]
 attr_originals = np.absolute(attr_PCA @ W_t) #X = ZW_t
 attr_11pca_total = np.append(attr_originals, attr_HGT)
-attr_11pca_total = attr_11pca_total/np.sum(attr_11pca_total) #Como cojo el valor absoluto de la transformación, pues tengo que volver a normalizar
+attr_11pca_total = attr_11pca_total/np.sum(attr_11pca_total) # Since I obtain absolute values, I have to normalize again.
 
 #Using FS mask to expand
 train_set_fs = WRFdataset(data_subset = 'train', group_configs = desired_configs , station_split = False)
@@ -42,7 +43,7 @@ attr_11fs_total[train_set_fs.feat_selec_mask] = attr_11fs
 
 #Using DS mask to expand
 attr_11ds_total = np.zeros(26)
-#Mask extracted from: /disk/barbusano/barbusano3/data/Sensitivity_UnetAllChSab5_XLowerCRPS_Val.npz
+#Mask extracted from: main_path/data/Sensitivity_UnetAllChSab5_XLowerCRPS_Val.npz
 feat_selec_mask_ds_XLowerCRPSVal = [False, True, True, False, False, True, False, True, False, False, False, False, True, False, False, True, False, False, False, False, True, False, True, True, True, True]
 attr_11ds_total[feat_selec_mask_ds_XLowerCRPSVal] = attr_11ds
 

@@ -12,8 +12,7 @@ from captum.attr import IntegratedGradients
 from Datasets import WRFdataset, desired_configs
 import numpy as np
 from models.UNet import UNet
-from prob_scores import CRPS_mine
-from utils import test_model_all_stations, CRPS_CSGDloss
+from utils import test_model_all_stations, CRPS_CSGDloss, CRPS_mine
 import matplotlib.pyplot as plt
 import pandas as pd
 
