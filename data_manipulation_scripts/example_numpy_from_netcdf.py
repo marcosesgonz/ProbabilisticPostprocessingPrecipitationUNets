@@ -36,8 +36,10 @@ rain_total_ph_one_ensemble = np.diff(rain_total_one_ensemble,axis=0) #First hour
 assert np.all(ncfile.variables['XTIME'][:] == (np.arange(0,49)*60)) 
 assert rain_total_ph_one_ensemble.shape == (24,110,202)
 
-channel_example_config = desired_configs.index('GFS_ysutr')
-
+# Load the corresponding saved preprocessed numpy file
 data_saved = np.load(f"data/temp_wrf_data_for_model/{file_example.split('_')[0]}_PrHourlyCropped.npy")
 
-assert np.all(data_saved[channel_example_config] == rain_total_ph_one_ensemble)
+# Check the channel corresponding to the configuration 'GFS_ysutr' with the numpy file loaded. As u can see, they match
+channel_example_config = desired_configs.index('GFS_ysutr')
+equal =  np.all(data_saved[channel_example_config] == rain_total_ph_one_ensemble)
+print(f'- Does the example preprocessing netcdf file match the loaded numpy file?\n{equal}')

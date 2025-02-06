@@ -36,7 +36,8 @@ def fold_validation_ds(name_experim,project_ref = 'StationsFoldValidation', epoc
         splitter = MeteoCentersSplitter(train_set, nfolds=5, stratify = False)
         #final_test_losses_fullch_list = [] 
         final_test_losses_list = [] 
-        final_test_rmse_losses_list = []
+        final_test_mae_losses_list = []
+        final_test_mse_losses_list = []
         final_test_bs_losses_list = []
         patience = 10 #Early stopping patience in training process
         for fold_id in range(5):
@@ -104,12 +105,13 @@ def fold_validation_ds(name_experim,project_ref = 'StationsFoldValidation', epoc
             for epoch in range(start_epoch, epochs):
                 train_ctrs_loss = u.train_model(net = net, tr_loader = train_data_loader, data = train_set,mask_centers_tr = mask_ctrs_tr, weights = None, bin_edges = None,
                                     optimizer = optimizer, device = device, lr_scheduler = lr_scheduler)
-                val_ctrs_loss, val_ctrs_val_rmse, val_ctrs_val_bs = u.test_model(net = net,tst_loader = val_data_loader, data = val_set, mask_centers_tst = mask_ctrs_tst, device = device)
+                val_ctrs_loss, val_ctrs_val_mae, val_ctrs_val_mse, val_ctrs_val_bs = u.test_model(net = net,tst_loader = val_data_loader, data = val_set, mask_centers_tst = mask_ctrs_tst, device = device)
 
                 wandb.log({
                     'train_ctrs_tr_fullch_loss': train_ctrs_loss,
                     'val_ctrs_val_fullch_loss': val_ctrs_loss,
-                    'val_ctrs_val_fullch_rmse': val_ctrs_val_rmse,
+                    'val_ctrs_val_fullch_mae': val_ctrs_val_mae,
+                    'val_ctrs_val_fullch_mse': val_ctrs_val_mse,
                     'val_ctrs_val_fullch_bs': val_ctrs_val_bs,
                     f'fold {fold_id + 1} epoch': epoch,
                     'fold': fold_id + 1
@@ -138,9 +140,9 @@ def fold_validation_ds(name_experim,project_ref = 'StationsFoldValidation', epoc
             
             print('Comprobación:')
             #Viendo el rendimiento del modelo en el conjunto de test y guardándolo en wandb
-            test_loss,test_rmse_loss, test_bs_loss  = u.test_model(net = net,tst_loader = test_data_loader, data = test_set, mask_centers_tst = mask_ctrs_tst, device = device)
+            test_loss,test_mae_loss,test_mse_loss, test_bs_loss  = u.test_model(net = net,tst_loader = test_data_loader, data = test_set, mask_centers_tst = mask_ctrs_tst, device = device)
             print('------------------------------')
-            print(f'Test metrics of FullCh UNet: fold {fold_id + 1}. loss(crps): {test_loss} brier_score: {test_bs_loss} RMSE: {test_rmse_loss}')
+            print(f'Test metrics of FullCh UNet: fold {fold_id + 1}. loss(crps): {test_loss} brier_score: {test_bs_loss} mae: {test_mae_loss}')
             print('------------------------------')
             
             print('Calculation of attributions:')
@@ -255,12 +257,13 @@ def fold_validation_ds(name_experim,project_ref = 'StationsFoldValidation', epoc
             for epoch in range(start_epoch, epochs):
                 train_ctrs_loss = u.train_model(net = net, tr_loader = train_ds_data_loader, data = train_set_ds,mask_centers_tr = mask_ctrs_tr, weights = None, bin_edges = None,
                                     optimizer = optimizer, device = device, lr_scheduler = lr_scheduler)
-                val_ctrs_loss, val_ctrs_val_rmse, val_ctrs_val_bs = u.test_model(net = net,tst_loader = val_ds_data_loader, data = val_set_ds, mask_centers_tst = mask_ctrs_tst, device = device)
+                val_ctrs_loss, val_ctrs_val_mae, val_ctrs_val_mse, val_ctrs_val_bs = u.test_model(net = net,tst_loader = val_ds_data_loader, data = val_set_ds, mask_centers_tst = mask_ctrs_tst, device = device)
 
                 wandb.log({
                     'train_ctrs_tr_loss': train_ctrs_loss,
                     'val_ctrs_val_loss': val_ctrs_loss,
-                    'val_ctrs_val_rmse': val_ctrs_val_rmse,
+                    'val_ctrs_val_mae': val_ctrs_val_mae,
+                    'val_ctrs_val_mse': val_ctrs_val_mse,
                     'val_ctrs_val_bs': val_ctrs_val_bs,
                     f'fold {fold_id + 1} epoch': epoch,
                     'fold': fold_id + 1
@@ -285,23 +288,27 @@ def fold_validation_ds(name_experim,project_ref = 'StationsFoldValidation', epoc
             max_checkpoint = torch.load(os.path.join(out_dir, f'fold{fold_id + 1}_checkpoint_max.pt'), weights_only=True)
             net.load_state_dict(max_checkpoint['net'])
 
-            test_loss,test_rmse_loss, test_bs_loss  = u.test_model(net = net,tst_loader = test_ds_data_loader, data = test_set_ds, mask_centers_tst = mask_ctrs_tst, device = device)
+            test_loss,test_mae_loss,test_mse_loss, test_bs_loss  = u.test_model(net = net,tst_loader = test_ds_data_loader, data = test_set_ds, mask_centers_tst = mask_ctrs_tst, device = device)
             print('------------------------------')
-            print(f'Final test results fold {fold_id + 1}. loss(crps): {test_loss} brier_score: {test_bs_loss} RMSE: {test_rmse_loss}')
+            print(f'Final test results fold {fold_id + 1}. loss(crps): {test_loss} brier_score: {test_bs_loss} mae: {test_mae_loss}')
             print('------------------------------')
             wandb.run.summary[f'test_loss_fold{fold_id + 1}'] = test_loss
             wandb.run.summary[f'test_bs_loss_fold{fold_id + 1}'] = test_bs_loss
-            wandb.run.summary[f'test_rmse_loss_fold{fold_id + 1}'] = test_rmse_loss
+            wandb.run.summary[f'test_mae_loss_fold{fold_id + 1}'] = test_mae_loss
+            wandb.run.summary[f'test_mse_loss_fold{fold_id + 1}'] = test_mse_loss
             final_test_losses_list.append(test_loss)
-            final_test_rmse_losses_list.append(test_rmse_loss)
+            final_test_mae_losses_list.append(test_mae_loss)
             final_test_bs_losses_list.append(test_bs_loss)
+            final_test_mse_losses_list.append(test_mse_loss)
         
         mean_test_crps_loss = np.mean(final_test_losses_list)
-        mean_test_rmse_loss = np.mean(final_test_rmse_losses_list)
+        mean_test_mae_loss = np.mean(final_test_mae_losses_list)
+        mean_test_mse_loss = np.mean(final_test_mse_losses_list)
         mean_test_bs_loss = np.mean(final_test_bs_losses_list)
         wandb.run.summary['Mean_CRPS_Loss'] = mean_test_crps_loss
         wandb.run.summary['Mean_BS_Loss'] = mean_test_bs_loss
-        wandb.run.summary['Mean_RMSE_Loss'] = mean_test_rmse_loss
+        wandb.run.summary['Mean_MAE_Loss'] = mean_test_mae_loss
+        wandb.run.summary['Mean_MSE_Loss'] = mean_test_mse_loss
         print('-----------------------------------------')
         print(f'Test losses per fold: {final_test_losses_list}')
 

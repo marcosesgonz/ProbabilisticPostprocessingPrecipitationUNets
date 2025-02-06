@@ -10,7 +10,7 @@ To reproduce the experiments, you need to download the required data and models:
 
 1. **Download Data**: All required data can be downloaded from [Google Drive](https://drive.google.com/drive/folders/1FEzji7PpGvqXzRPBh961NDqujRgPf7JZ?usp=sharing).
    - Place the station information CSV file, `MixtureNewAemetAgrocab_PrHourly20190715_20200821.csv`, inside the `data/` folder.
-   - Place the unzipped `.rar` data from the ensemble WRF set inside the folder `data/temp_wrf_data_for_model`.
+   - Place the unzipped `.rar` data from the ensemble WRF set inside the folder `data/temp_wrf_data_for_model`. This data corresponds to a numpy (`.npy`) file for each day of data. These numpy files were preprocessed from netcdf archives. The script `data_manipulation_scripts/example_numpy_from_netcdf.py` shows an example of preprocessing one day data of a WRF simulation from netcdf to a numpy file. To run this script, place the file `2019104_GFS_ysutr.nc` inside `data/example_netcdf_data/` folder.
 
 2. **Pretrained Models**: To use pretrained models (`.pt` files), place them in their corresponding folder under `Laboratory/result_logs`.
 
@@ -30,7 +30,7 @@ A `requirements.txt` file is provided as a guideline for the dependencies needed
   - Ensure you download the pretrained models and data from the provided Google Drive link to use these scripts.
 
 - **Training Your Own UNet**:
-  - Use the script `Laboratory/TrainValTest.py` with appropriate arguments to train your own UNet model.
+  - Use the script `Laboratory/TrainValTest.py` with appropriate arguments to train your own UNet model. Use `-h` argument to show a help message.
   - For the UNet-DS approach:
     1. Train the UNet with all input channels (or use the pretrained UNet-All weights from Google Drive).
     2. Run the script `SensitivityCalculation/calc_sensitivity_DS.py`, editing the path to the UNet-All weights.

@@ -3,3 +3,4 @@
 *.pyc
 *.pt
 *.nc
+*.DS_Store

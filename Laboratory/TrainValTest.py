@@ -19,6 +19,7 @@ def execute_model(project_ref, name_experim,  epochs = 35, optimizer = 'sgd', us
     wandb.login() #Login in wandb 
     u.set_seed() #set the seed for reproducibility
 
+    # Necessary to resume past training
     if run_id is not None:
         name_experim = None
         checkpoint_file = input('Checkpoint file(.kpath) with desired trained model:')
@@ -30,39 +31,44 @@ def execute_model(project_ref, name_experim,  epochs = 35, optimizer = 'sgd', us
                     id = run_id,resume = resume_): 
         device = ("cpu")
 
-
+        #Load train, validation and test sets
         train_set = WRFdataset(data_subset = 'train', group_configs = desired_configs)
         val_set = WRFdataset(data_subset = 'val', group_configs =  desired_configs)
         test_set = WRFdataset(data_subset = 'test', group_configs =  desired_configs)
 
+        # Normalize data (subtract mean and divide by standard deviation)
         if normalize_data:
             train_set.normalize_data()
             val_set.normalize_data(train_set.mean_og_data, train_set.std_og_data)
             test_set.normalize_data(train_set.mean_og_data, train_set.std_og_data)
+        # Apply PCA 
         if pca_data:
             print('Applying PCA')
-            train_set.apply_PCA(ncomponents=10)
+            train_set.apply_PCA(ncomponents=10) # keeping the 10 PCA components with the highest weight.
             val_set.apply_PCA(eigvec_transp = train_set.W_t_PCA)
             test_set.apply_PCA(eigvec_transp = train_set.W_t_PCA)
-            n_inp_channels = len(train_set.eigv_PCA) + 1
+            n_inp_channels = len(train_set.eigv_PCA) + 1 # It is added the height terrain (HGT) map.
+        # Apply least correlated feature selection 
         elif feat_selec_data:
             print('Applying Feat.Selec')
-            train_set.apply_feature_selec(11)
+            train_set.apply_feature_selec(10) # keeping 10 least correlated variables + HGT.
             val_set.apply_feature_selec(feat_selec_mask = train_set.feat_selec_mask)  
             test_set.apply_feature_selec(feat_selec_mask = train_set.feat_selec_mask)  
             n_inp_channels = np.sum(train_set.feat_selec_mask)
+        # Apply down-selection (DS) feature selection strategy 
         elif down_selec_data:
-            print('Applying Down Selection')
+            print('Applying Down Selection (check preloaded mask being used, if necessary)')
             #Edit this mask with ur own down selection mask (or your own feature selection mask). This default mask is obtained as described in the down selection method of the study.
-            feat_selec_mask_ds_XLowerCRPSVal = [False, True, True, False, False, True, False, True, False, False, False, False, True, False, False, True, False, False, False, False, True, False, True, True, True, True]
+            feat_selec_mask_ds_XLowerCRPSVal = [False, True, True, False, False, True, False, True, False, False, False, False, True, False, False, True, False, False, False, False, True, False, True, True, True]#, True]
             train_set.apply_feature_selec(feat_selec_mask = feat_selec_mask_ds_XLowerCRPSVal)
             val_set.apply_feature_selec(feat_selec_mask = feat_selec_mask_ds_XLowerCRPSVal)  
             test_set.apply_feature_selec(feat_selec_mask = feat_selec_mask_ds_XLowerCRPSVal)  
             n_inp_channels = np.sum(train_set.feat_selec_mask)
         else:
-            n_inp_channels = train_set.num_ensembles + 1
+            n_inp_channels = train_set.num_ensembles + 1 # All ensemble members plus HGT map
             
         train_size_,val_size_, test_size_ = len(train_set),len(val_set), len(test_set)
+        # Load UNet arquitecture
         net = UNet(n_inp_channels = n_inp_channels, n_outp_channels = 3, red_factor = reduct_factor)
         n_params = u.num_trainable_params(net)
 
@@ -80,16 +86,18 @@ def execute_model(project_ref, name_experim,  epochs = 35, optimizer = 'sgd', us
                 n_trainable_params = '%.6e'%n_params)
             wandb.config.update(hyperparameters)
 
+        # Weigthed labels trial (it isnt used in paper)
         if use_weights:
             y_weights, y_bin_edges = train_set.compute_frequency_weights()
-            print('Pesos de las "etiquetas" según precipitación registrada (y sus bins):\n',y_weights, y_bin_edges)
+            print('Weights of “labels” according to recorded rainfall (and their bins):\n',y_weights, y_bin_edges)
         else:
             y_weights, y_bin_edges = None, None
-            print('NO se usan pesos para las "etiquetas"')
+            print('NO weights are used for “labels”.')
 
         print(net)
-        net.to(device) #Loss function isnt implemented in CUDA and MPS devices
+        net.to(device) # Warning: Loss function isn't implemented in CUDA and MPS devices
 
+        # Dataloader pytorch objects for training and testing 
         train_data_loader = torch.utils.data.DataLoader(
             dataset = train_set, batch_size = batch_size,
             shuffle = True, drop_last = True
@@ -112,6 +120,7 @@ def execute_model(project_ref, name_experim,  epochs = 35, optimizer = 'sgd', us
         print('Number of trainable paramenters:  %.6e'%n_params)
         print('\nNº instancias train/val/test:', train_size_,'/',val_size_,'/', test_size_)
 
+        # Optimizer used to refresh UNet weights during training
         if optimizer == 'sgd':
             optimizer = torch.optim.SGD(net.parameters(), lr = lr, momentum = 0.9) 
             lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max = epochs, eta_min= 1e-5)
@@ -128,7 +137,7 @@ def execute_model(project_ref, name_experim,  epochs = 35, optimizer = 'sgd', us
         
         min_val_loss = 1e4
         start_epoch = 0
-        #Cargamos los datos si se quiere continuar ejecución
+        # Loading data if a run being resumed
         if run_id is not None:
             dicts = torch.load(checkpoint_file)
             #lr_scheduler.load_state_dict(dicts['lr_scheduler'])
@@ -138,25 +147,27 @@ def execute_model(project_ref, name_experim,  epochs = 35, optimizer = 'sgd', us
             start_epoch = dicts['epoch'] + 1
             print('Trained model succesfully loaded')
         
+        # Folder to save logs
         root_file = os.path.dirname(__file__)
         out_dir = os.path.join(root_file,'result_logs', f'b{batch_size}_lr{lr}_{name_experim}')
         if not os.path.exists(out_dir):
             os.makedirs(out_dir)
             print(f'Logs saved in {out_dir}.')
         
-        patience = 10
+        patience = 10 # Number of waiting epochs with no improvement in results until execution stops
         patience_counter = 0
         for epoch in range(start_epoch, epochs):
             train_loss = u.train_model_all_stations(net = net, tr_loader = train_data_loader, data = train_set, weights = y_weights, bin_edges = y_bin_edges,
                                                 optimizer = optimizer, device = device, lr_scheduler = lr_scheduler)
-            val_loss, val_rmse_loss, val_bs_loss = u.test_model_all_stations(net = net,tst_loader = val_data_loader, data = val_set, device = device)
+            val_loss, val_mae_loss,val_mse_loss, val_bs_loss = u.test_model(net = net,tst_loader = val_data_loader, data = val_set, device = device)
 
-            # Registro de los valores en wandb
+            # Registering values in wandb
             wandb.log({
                 'train_crps_loss': train_loss,
                 'val_crps_loss': val_loss,
                 'val_bs_loss': val_bs_loss,
-                'val_rmse_loss': val_rmse_loss,
+                'val_mse_loss': val_mse_loss,
+                'val_mae_loss': val_mae_loss,
             }, step=epoch)
 
             checkpoint = {
@@ -186,18 +197,19 @@ def execute_model(project_ref, name_experim,  epochs = 35, optimizer = 'sgd', us
         max_checkpoint = torch.load(os.path.join(out_dir, 'checkpoint_max.pt'))
         net.load_state_dict(max_checkpoint['net'])
 
-        print('Comprobación:')
-        val_loss, val_rmse_loss, val_bs_loss = u.test_model_all_stations(net = net,tst_loader = val_data_loader, data = val_set, device = device)
-        print(f'El val loss recargando el mejor modelo es {val_loss}. Y se tiene guardado el valor {min_val_loss}')
+        print('Checking:')
+        val_loss, val_mae_loss,val_mse_loss, val_bs_loss = u.test_model(net = net,tst_loader = val_data_loader, data = val_set, device = device)
+        print(f'Val loss reloading best model is: {val_loss}. The value saved is: {min_val_loss}')
         
         #Showing results in test sets and registering it in wandba
-        test_loss,test_rmse_loss, test_bs_loss = u.test_model_all_stations(net = net,tst_loader = test_data_loader, data = test_set, device = device)
+        test_loss,test_mae_loss, test_mse_loss, test_bs_loss = u.test_model_all_stations(net = net,tst_loader = test_data_loader, data = test_set, device = device)
         print('------------------------------')
-        print(f'Final test results. loss(crps): {test_loss} brier_score: {test_bs_loss} RMSE: {test_rmse_loss}')
+        print(f'Final test results. loss(crps): {test_loss} brier_score: {test_bs_loss} MAE: {test_mae_loss}')
         print('------------------------------')
         wandb.run.summary['test_loss'] = test_loss
         wandb.run.summary['test_bs_loss'] = test_bs_loss
-        wandb.run.summary['test_rmse_loss'] = test_rmse_loss
+        wandb.run.summary['test_mse_loss'] = test_mse_loss
+        wandb.run.summary['test_mae_loss'] = test_mae_loss
 
 
 def parse_args():

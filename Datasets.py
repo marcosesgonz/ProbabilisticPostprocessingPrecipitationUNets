@@ -102,7 +102,7 @@ class WRFdataset(torch.utils.data.Dataset):
         
         # Load height data
         hgt_data = np.load(os.path.join('data','temp_wrf_data_for_model','HGTCropped.npy'))  
-        self.hgt_data = np.expand_dims(hgt_data , axis = 0)  #Add a batch dimension
+        self.hgt_data_norm = np.expand_dims((hgt_data - np.mean(hgt_data))/np.std(hgt_data) , axis = 0)  #Shape after operation: [1,size_y,size_x] #Add a batch dimension
 
         # Additional dataset properties
         self.data_subset = data_subset
@@ -154,7 +154,7 @@ class WRFdataset(torch.utils.data.Dataset):
         sum = 0.0
         nb_samples = 0
         for batch_data, _ in dataloader:
-            batch_data = batch_data.double()
+            batch_data = batch_data[:,:-1].double()
             batch_sum = batch_data.sum(dim=(0, 2, 3), keepdim=True)
             batch_samples = batch_data.size(0) * batch_data.size(2) * batch_data.size(3)
             sum += batch_sum
@@ -176,7 +176,7 @@ class WRFdataset(torch.utils.data.Dataset):
         std_sum = 0.0
         nb_samples = 0
         for batch_data, _ in dataloader:
-            batch_data = batch_data.double()
+            batch_data = batch_data[:,:-1].double()
             batch_std_sum = ((batch_data - mean)**2).sum(dim=(0, 2, 3), keepdim=True)
             batch_samples = batch_data.size(0) * batch_data.size(2) * batch_data.size(3)
             std_sum += batch_std_sum
@@ -317,15 +317,19 @@ class WRFdataset(torch.utils.data.Dataset):
         idx_hour = idx % self.num_data_per_day
         rain_data = np.load(os.path.join('data','temp_wrf_data_for_model',f'{day}_PrHourlyCropped.npy'))
         rain_data = rain_data[:,idx_hour,:,:]  #Shape after operation: [num_ensembles, size_y, size_x]
-        X = np.concatenate([rain_data, self.hgt_data], axis = 0)
+        X = rain_data
+        #X = np.concatenate([rain_data, self.hgt_data], axis = 0)
         if self.data_normalization:
             X = (X - self.mean_og_data) / self.std_og_data
+
         if self.data_applyPCA:
-            X_noHGT = X[:self.num_ensembles,:,:] 
-            Z = np.einsum('md,dij->mij',self.W_t_PCA,X_noHGT) #Z_t = (W_t * X_t), Z_t has shape (M, size_y, size_x) with M the number of PCA vectors selected
-            X = np.concatenate([Z,X[self.num_ensembles:,:,:]], axis = 0)
+            X = np.einsum('md,dij->mij',self.W_t_PCA,X)
+
         elif self.data_applyFeatSelec:
             X = X[self.feat_selec_mask,:,:]
+
+        X = np.concatenate([X, self.hgt_data_norm], axis = 0)
+        
         meteo_data_filtered = self.meteo_data.iloc[idx,1:].to_numpy(dtype=np.float32)  #The first column of the csv is the date.
         if self.return_hour:
             return X, meteo_data_filtered, self.data_hours[idx_hour] #x_y_d04_filtered

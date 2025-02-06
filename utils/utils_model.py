@@ -133,59 +133,19 @@ def train_model_all_stations(net, tr_loader, data, optimizer, device, lr_schedul
         
         return train_loss
 
-# Test the model in masked stations (test stations)
-def test_model(net, tst_loader, data, mask_centers_tst, device):
-        net.eval()
 
-        test_loss, test_bs_loss, test_rmse_loss,  test_samples = 0, 0, 0, 0
-        criterion = CRPS_CSGDloss()
-
-        with torch.no_grad():
-            for data_batch in tst_loader:
-                if data.return_hour:
-                    frame, targets, hours = data_batch
-                else:
-                    frame, targets = data_batch
-                no_na_mask = ~torch.isnan(targets) #Hacemos el filtro de las centrales meteorológicas que no tienen nan
-                mask_tst_ctrs = np.logical_and(mask_centers_tst, no_na_mask).bool()
-
-                batch_tst_positions, indices_tst_mask_stations = torch.nonzero(mask_tst_ctrs, as_tuple = True)
-                num_points_to_test = len(batch_tst_positions)
-
-                x_y_tst = data.meteo_centers_info['x_y_d04'][indices_tst_mask_stations] #Comprobado
-                x_tst_positions, y_tst_postions = x_y_tst[...,0], x_y_tst[...,1]
-
-                frame = frame.to(device)
-                targets_tst_ctrs = targets[mask_tst_ctrs]
-                targets_tst_ctrs = targets_tst_ctrs.to(device)
-
-                output = net(frame,hours) if data.return_hour else net(frame)
-                output_tst_ctrs = output[batch_tst_positions,:, y_tst_postions - data.crop_y[0], x_tst_positions - data.crop_x[0] ]
-                
-                loss_tst_ctrs = criterion(output_tst_ctrs,targets_tst_ctrs)
-                bs_loss = calculate_brier_score(output_tst_ctrs, targets_tst_ctrs)#calculate_rmse(output_tst_ctrs, targets_tst_ctrs)
-                rmse_loss = calculate_rmse(output_tst_ctrs, targets_tst_ctrs)
-                test_samples += num_points_to_test
-                
-                test_loss_batch = loss_tst_ctrs.item() * num_points_to_test
-                test_rmse_loss_batch = rmse_loss.item() * num_points_to_test
-                test_bs_loss_batch = bs_loss.item() * num_points_to_test
-
-                test_loss += test_loss_batch
-                test_rmse_loss += test_rmse_loss_batch
-                test_bs_loss += test_bs_loss_batch
-
-        test_loss /= test_samples
-        test_rmse_loss /= test_samples
-        test_bs_loss /= test_samples
-        return test_loss, test_rmse_loss, test_bs_loss
-
-# Test model in all available stations
-def test_model_all_stations(net, tst_loader, data, device , per_hour = False):
+# Test model in (all available/ masked) stations
+def test_model(net, data, device , mask_centers_tst = None, tst_loader = None, per_hour = False, return_mean = True):
+    if tst_loader is None:
+        tst_loader = torch.utils.data.DataLoader(data, batch_size = 32, shuffle = False, drop_last = False)
     net.eval()
-    calculate_crps = CRPS_CSGDloss()
+    calculate_crps = CRPS_CSGDloss(return_mean = return_mean)
     if not per_hour:
-        test_loss, test_bs_loss, test_rmse_loss, test_samples = 0, 0, 0, 0
+        if return_mean:
+            test_loss, test_bs_loss, test_mae_loss, test_mse_loss, test_samples = 0, 0, 0, 0, 0
+        else:
+            test_loss_list, test_bs_list, test_mae_list, test_mse_list = [], [], [], []
+        
         with torch.no_grad():
             for data_batch in tst_loader:  #frame ==> [N, C, H, W] , targets ==> [N, N_stations] 
                 if data.return_hour:
@@ -194,6 +154,8 @@ def test_model_all_stations(net, tst_loader, data, device , per_hour = False):
                     frame,targets = data_batch
                 #Hacemos el filtro de las centrales meteorológicas que tienen nan
                 no_na_mask = ~torch.isnan(targets) 
+                if mask_centers_tst is not None:
+                    no_na_mask = np.logical_and(mask_centers_tst, no_na_mask).bool()
                 #Con el torch.nonzero obtenemos las posiciones en la dimensión del batch y en el de las estaciones donde hay True. p.e: batch_tr_positions=[0,0,0,0,1,1,1...] y indices_tr_mask_stations=[2,3,6,7,2,3,7...]
                 batch_tst_positions, indices_test_mask_stations = torch.nonzero(no_na_mask, as_tuple = True) 
                 num_points_to_test = len(batch_tst_positions) 
@@ -208,34 +170,49 @@ def test_model_all_stations(net, tst_loader, data, device , per_hour = False):
                 
                 output = net(frame,hours) if data.return_hour else net(frame)  
                 output_tst_ctrs = output[batch_tst_positions, :, y_tst_postions - data.crop_y[0], x_tst_positions - data.crop_x[0] ]
+
                 loss = calculate_crps(output_tst_ctrs, targets_tst_ctrs)
-                bs_loss = calculate_brier_score(output_tst_ctrs, targets_tst_ctrs)#calculate_rmse(output_tst_ctrs, targets_tst_ctrs)
-                rmse_loss = calculate_rmse(output_tst_ctrs, targets_tst_ctrs)
-                test_samples += num_points_to_test
+                bs_loss = calculate_brier_score(output_tst_ctrs, targets_tst_ctrs, return_mean = return_mean)#calculate_rmse(output_tst_ctrs, targets_tst_ctrs)
+                mse_loss, mae_loss = calculate_mse(output_tst_ctrs, targets_tst_ctrs, and_mae= True, return_mean = return_mean)
 
-                test_loss_batch = loss.item() * num_points_to_test
-                test_rmse_loss_batch = rmse_loss.item() * num_points_to_test
-                test_bs_loss_batch = bs_loss.item() * num_points_to_test
+                if return_mean:
+                    test_samples += num_points_to_test
+                    test_loss_batch = loss.item() * num_points_to_test
+                    test_mae_loss_batch = mae_loss.item() * num_points_to_test
+                    test_mse_loss_batch = mse_loss.item() * num_points_to_test
+                    test_bs_loss_batch = bs_loss.item() * num_points_to_test
 
-                test_loss += test_loss_batch
-                test_rmse_loss += test_rmse_loss_batch
-                test_bs_loss += test_bs_loss_batch
+                    test_loss += test_loss_batch
+                    test_mae_loss += test_mae_loss_batch
+                    test_bs_loss += test_bs_loss_batch
+                    test_mse_loss += test_mse_loss_batch
+                else:
+                    test_loss_list.extend(list(loss))
+                    test_mae_list.extend(list(mae_loss))
+                    test_mse_list.extend(list(mse_loss))
+                    test_bs_list.extend(list(bs_loss))
 
-        #print(f'Tamaño de test segun test_model_all_stations: {test_samples}')
-        test_loss /= test_samples
-        test_rmse_loss /= test_samples
-        test_bs_loss /= test_samples
-        return test_loss, test_rmse_loss, test_bs_loss
+        if return_mean:
+            test_loss /= test_samples
+            test_mae_loss /= test_samples
+            test_mse_loss /= test_samples
+            test_bs_loss /= test_samples
+            return test_loss, test_mae_loss, test_mse_loss, test_bs_loss
+        else:
+            return test_loss_list, test_mae_list, test_mse_list, test_bs_list
     if per_hour:
         print('WARNING: Assert that batch size of the dataloader is 1.')
         test_loss = defaultdict(float)
         nsamples_loss = defaultdict(int)
-        test_rmse_loss = defaultdict(float)
+        test_mae_loss = defaultdict(float)
+        test_mse_loss = defaultdict(float)
         test_bs_loss = defaultdict(float)
         with torch.no_grad():
             for (frame, targets, hours) in tst_loader:  #frame ==> [N, C, H, W] , targets ==> [N, N_stations] 
                 #Hacemos el filtro de las centrales meteorológicas que tienen nan
                 no_na_mask = ~torch.isnan(targets) 
+                if mask_centers_tst is not None:
+                    no_na_mask = np.logical_and(mask_centers_tst, no_na_mask).bool()
                 #Con el torch.nonzero obtenemos las posiciones en la dimensión del batch y en el de las estaciones donde hay True. p.e: batch_tr_positions=[0,0,0,0,1,1,1...] y indices_tr_mask_stations=[2,3,6,7,2,3,7...]
                 batch_tst_positions, indices_test_mask_stations = torch.nonzero(no_na_mask, as_tuple = True) 
                 num_points_to_test = len(batch_tst_positions) 
@@ -252,21 +229,23 @@ def test_model_all_stations(net, tst_loader, data, device , per_hour = False):
                 output_tst_ctrs = output[batch_tst_positions, :, y_tst_postions - data.crop_y[0], x_tst_positions - data.crop_x[0] ]
                 
                 loss = calculate_crps(output_tst_ctrs, targets_tst_ctrs)
-                rmse_loss = calculate_rmse(output_tst_ctrs, targets_tst_ctrs)
+                mse_loss,mae_loss = calculate_mse(output_tst_ctrs, targets_tst_ctrs)
                 bs_loss = calculate_brier_score(output_tst_ctrs, targets_tst_ctrs)
 
                 test_loss_batch = loss.item() * num_points_to_test
-                test_rmse_loss_batch = rmse_loss.item() * num_points_to_test
+                test_mae_loss_batch = mae_loss.item() * num_points_to_test
+                test_mse_loss_batch = mse_loss.item() * num_points_to_test
                 test_bs_loss_batch = bs_loss.item() * num_points_to_test
 
                 hour = hours[0].item()
                 test_loss[hour] += test_loss_batch
-                test_rmse_loss[hour] += test_rmse_loss_batch
+                test_mae_loss[hour] += test_mae_loss_batch
+                test_mse_loss[hour] += test_mse_loss_batch
                 test_bs_loss[hour] += test_bs_loss_batch
                 nsamples_loss[hour] += num_points_to_test
         
-        # Respectively, CRPS, RMSE, BS and Number of samples
-        return test_loss, test_rmse_loss, test_bs_loss, nsamples_loss 
+        # Respectively, CRPS, MAE,MSE, BS and Number of samples
+        return test_loss, test_mae_loss, test_mse_loss, test_bs_loss, nsamples_loss 
 
 
 #Implementation of CDF Gamma Backward method. It is necessary for CRPS loss function.
@@ -404,17 +383,11 @@ def algun_nan(k):
     print(torch.sum((torch.isnan(k)).type(torch.int8)))
 
 class CRPS_CSGDloss(nn.Module):
-    def __init__(self, weights = None, bin_edges = None, mean_regularitazion = True):
+    def __init__(self, mean_regularitazion = True, return_mean = True):
         super(CRPS_CSGDloss, self).__init__()
-        if (weights is not None) and (bin_edges is not None):
-            self.weights = torch.tensor(weights)
-            self.bin_edges = torch.tensor(bin_edges)
-            weighting = True
-        else:
-            weighting = False
-        self.weighting = weighting
         self.mean_reg = mean_regularitazion
-        print(f'Regularization with mean: {mean_regularitazion}')
+        self.return_mean = return_mean
+        #print(f'Regularization with mean: {mean_regularitazion}')
             
 
     def forward(self,output_notclamped, target):  #shift >= 0, scale >0, shape > 0              mean > 0, std_dev > 0
@@ -437,19 +410,18 @@ class CRPS_CSGDloss(nn.Module):
         scale = std_dev_regularized**2 / mean
 
         target_shifted = target + shift
+        cdf_gamma_shift = self.csgd_cdf(+shift,shape,scale)
 
         sum1 = target_shifted * ( 2*self.csgd_cdf(target_shifted, shape, scale) - 1)
         sum2 = - (shape * scale / torch.tensor(torch.pi)) * self.beta_f(torch.tensor(0.5), shape + torch.tensor(0.5)) * (1 - self.csgd_cdf(+2 * shift, shape = 2 * shape, scale = scale))
-        sum3 = scale * shape * (1 + 2*self.csgd_cdf(+shift,shape, scale)*self.csgd_cdf(+shift,shape + 1, scale) - self.csgd_cdf(+shift,shape,scale)**2 - 2*self.csgd_cdf(target_shifted,shape + 1, scale))
-        sum4 = -shift * self.csgd_cdf(+shift,shape,scale)**2
+        sum3 = scale * shape * (1 + 2*cdf_gamma_shift*self.csgd_cdf(+shift,shape + 1, scale) - cdf_gamma_shift**2 - 2*self.csgd_cdf(target_shifted,shape + 1, scale))
+        sum4 = -shift * cdf_gamma_shift**2
         loss = sum1 + sum2 + sum3 + sum4
 
-        if self.weighting:
-            bin_indices = torch.bucketize(target, self.bin_edges, right = True) #Si bin_indices es 0 significa, o que está fuera de rango de bin_edges, o que es inf o nan.
-            weights = self.weights[bin_indices - 1]
-            return (loss * weights).mean()
-        else:
+        if self.return_mean:
             return loss.mean()
+        else:
+            return loss
     
     def beta_f(self,x, y):
         return torch.exp(torch.lgamma(x) + torch.lgamma(y) - torch.lgamma(x + y))
@@ -460,8 +432,9 @@ class CRPS_CSGDloss(nn.Module):
         return cdf_gamma
     
 
-def calculate_rmse(output, target):
+def calculate_mse(output, target, and_mae = True, return_mean = True):
     # output shape: [N,3,...]
+    output = torch.clamp(output, min = 1e-10)
     mean, std_dev_no_reg, shift = output[:, 0], output[:, 1], output[:, 2]
     std_dev_regularized = std_dev_no_reg + torch.sqrt(mean) #+ 0.35 * mean
 
@@ -471,10 +444,20 @@ def calculate_rmse(output, target):
     cdf_gamma = torch.igamma(shape,shift/scale) #CDF value at x = shift for gamma distrib with shape, scale parameters.a
 
     expected_value = mean*(1 - cdf_gamma)*(1 - torch.igamma(shape + 1,shift/scale)) - shift*(1 - cdf_gamma)**2
-    rmse = torch.sqrt((expected_value - target) ** 2)
-    return rmse.mean()
+    mse = ((expected_value - target) ** 2)
+    if and_mae:
+        if return_mean:
+            return mse.mean(), mse.sqrt().mean()
+        else:
+            return mse, mse.sqrt().mean()
+    else:
+        if return_mean:
+            return mse.mean()
+        else:
+            return mse
 
-def calculate_brier_score(output, target, threshold = 1):
+def calculate_brier_score(output, target, threshold = 1, return_mean = True):
+    output = torch.clamp(output, min = 1e-10)
     mean, std_dev_no_reg, shift = output[:, 0], output[:, 1], output[:, 2]
     std_dev_regularized = std_dev_no_reg + torch.sqrt(mean) #+ 0.35 * mean
     #Obtener shape, scale y shift
@@ -484,4 +467,7 @@ def calculate_brier_score(output, target, threshold = 1):
     target_binarized = target <= threshold
     cdf_gamma_at_thr = torch.igamma(shape, (shift + threshold)/scale)
     brier_score = (cdf_gamma_at_thr - target_binarized.float())**2 #https://www.mendeley.com/reference-manager/reader/6fe48596-cf67-3f17-b830-0fdbfba521f7/46dbbe3b-a6a3-c54b-5a62-3629c10b86e0/
-    return brier_score.mean()
+    if return_mean:
+        return brier_score.mean()
+    else:
+        return brier_score
