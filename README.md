@@ -11,7 +11,7 @@ To reproduce the experiments, you need to download the required data and models:
 1. **Download Data**: All required data can be downloaded from [Google Drive](https://drive.google.com/drive/folders/1FEzji7PpGvqXzRPBh961NDqujRgPf7JZ?usp=sharing).
    - Place the station information CSV file, `MixtureNewAemetAgrocab_PrHourly20190715_20200821.csv`, inside the `data/` folder.
    - Place the unzipped `.rar` data from the ensemble WRF set inside the folder `data/temp_wrf_data_for_model`. This data corresponds to a numpy (`.npy`) file for each day of data. These numpy files were preprocessed from netcdf archives. The script `data_manipulation_scripts/example_numpy_from_netcdf.py` shows an example of preprocessing one day data of a WRF simulation from netcdf to a numpy file. To run this script, place the file `2019104_GFS_ysutr.nc` inside `data/example_netcdf_data/` folder.
-   - Place the results files `results_5folds.npz` and `results_overall.npz` inside the `results/` folder in order to run bootstraped results using `metric_evaluations_predictive_performance/computing_bootstraps.py` numpy file.
+   - The files `results_5folds.npz` and `results_overall.npz` contain all the raw metric results presented in the paper. Place these files inside the `results/` folder to run bootstrapped results using the `metric_evaluations_predictive_performance/computing_bootstraps.py` script.
 
 2. **Pretrained Models**: To use pretrained models (`.pt` files), place them in their corresponding folder under `results/unet_weights`.
 
@@ -27,7 +27,7 @@ A `requirements.txt` file is provided as a guideline for the dependencies needed
 
 ### Replicating paper results
 
-- Users can now reproduce the results using the "metric_evaluator" class located at `metric_evaluations_predictive_performance/metric_evaluator.py`. To use this class, refer to the comments inside the eval() method. Below is an example of how to evaluate generalization results for the UNet-FS model:
+- Users can now reproduce the UNet results using the "metric_evaluator" class located at `metric_evaluations_predictive_performance/metric_evaluator.py`. To use this class, refer to the comments inside the eval() method. Below is an example of how to evaluate generalization results for the UNet-FS model:
   
   ```
   from metric_evaluator import evaluator
@@ -50,7 +50,7 @@ A `requirements.txt` file is provided as a guideline for the dependencies needed
 
   - Classical Methods:
     - Training classical methods can be reproduced by running the cells in `Laboratory/Calculation_classical_methods.ipynb`.
-    - Note: Classical model weights are not available yet (unless requested), so they must be trained and then evaluated manually.
+    - Note: Classic model weights will be available upon request. However, these models can be trained and evaluated using `Laboratory/Calculation_classical_methods.ipynb` script mentioned above.
 
 - **Spatial Generalization Performance Experiments**:
   - Use the script `Laboratory/FiveFoldsStations_DS.py` for evaluating the Down Selection (DS) approach.

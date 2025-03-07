@@ -129,7 +129,7 @@ class evaluator:
         
         elif model_name == 'unet_all':
             if meteoc_folds:
-                path = os.path.join(main_path,'results','unet_weights','5folds','b32_lr0.001_b32_lr1e-3_11DownSelec')
+                path = os.path.join(main_path,'results','unet_weights','5folds','b32_lr1e-3_11DownSelecLowerCRPSVal')
                 w_path = [os.path.join(path,f'fold{i}_fullch_checkpoint_max.pt') for i in range(1,6)]
             else:
                 w_path = os.path.join(main_path,'results','unet_weights','overall','b32_lr0.001_b32_lr1e-3_AdamW_Norm_AllChannels_SqrtStdReg','checkpoint_max.pt')
@@ -192,7 +192,7 @@ class evaluator:
         Evaluates different models based on the specified model name.
         
         Parameters:
-        - model_name (str): The name of the model to evaluate. Supports 'ensemble','unet_pca','unet_ds','unet_fs','unet_all', 'PredCSGD', 'AnEn', and 'AnnCSGD'.
+        - model_name (str): The name of the model to evaluate. Supports 'ensemble','unet_pca','unet_ds','unet_fs','unet_all'.
         - include_ensemble_metrics (bool): If True, calculates CRPS, MSE, Brier Score, and ensemble mean.
         - return_params (bool): If True, returns model parameters.
         - results (bool): If True, returns model results.
@@ -205,7 +205,6 @@ class evaluator:
         Notes:
         - If 'ensemble' is selected, either full ensemble results or specific ensemble metrics are returned.
         - If 'unet' models are selected, evaluation is based on pre-trained UNet models.
-        - PredictiveCSGD, AnalogEnsemble, and ANNCSGD models are placeholders for potential future implementation.
         """
         if model_name == 'ensemble':
             return self.obtain_metrics_ensemble(return_metrics_mean = return_metrics_mean, meteoc_folds = meteo_center_folds)
@@ -214,34 +213,4 @@ class evaluator:
         elif model_name.startswith('unet') or model_name.startswith('utransf'):
             return self.obtain_results_net(model_name = model_name, params = return_params, results = results,
                                              return_metrics_mean= return_metrics_mean, meteoc_folds= meteo_center_folds)
-        
-        elif model_name.startswith('PredCSGD'):
-            USE_FS_Columns = True if model_name.endswith('fs') else False
-            fs_columns = ['GFS_ysutr', 'ARPEGE_ysumc', 'GEM_uwtc', 'GEM_myjtr', 'GFS_uwmc', 
-              'GFS_uwtr', 'ARPEGE_uwmc', 'ARPEGE_uwtc', 'GFS_uwtc', 'GEM_mynn2mc']#Can be checked with the train_set.feat_selec_mask if it is recomputed
-            path_weigths = 'PredCSGD_10FS_pesos.pkl' if USE_FS_Columns else 'PredCSGD_pesos.pkl'
-            with open(path_weigths, 'rb') as f:
-                estac_pesos = pickle.load(f)
-            list_station_names = list(estac_pesos.keys())
-            assert len(list_station_names) == 130
-            results = defaultdict(list)
-            for i,station_name in enumerate(list_station_names):
-                ensemb_train_df = pd.read_csv( os.path.join(self.csvs_dir_ensemble ,station_name + '_train.csv') ).dropna()
-                ensemb_test_df = pd.read_csv( os.path.join(self.csvs_dir_ensemble ,station_name + '_test.csv') ).dropna()
-                wrf_ensemble_test = ensemb_test_df[fs_columns].values if USE_FS_Columns else ensemb_test_df.iloc[:,2:].values  
-                wrf_ensemble_train = ensemb_train_df[fs_columns].values if USE_FS_Columns else ensemb_train_df.iloc[:,2:].values  
-                ground_truth_test = ensemb_test_df.iloc[:,1].values
-
-                pred_csgd = PredictiveCSGD(params = estac_pesos[station_name]['pred'], forecast_climat_mean = np.mean(wrf_ensemble_train),
-                               climat_params= estac_pesos[station_name]['climat'] ,verbose=False)
-                crps_test, mae_test, mse_test, bs_test = pred_csgd.predict(ground_truth_test,wrf_ensemble_test, metrics = 'all', return_mean=False, bs_threshold=[1,0.1,0.2,0.5,0.7])
-                for metric_name_,metric_results_ in zip(['crps','mae','mse','bs'],[crps_test,mae_test,mse_test,bs_test]):
-                    results[metric_name_].extend(metric_results_)
-            
-            return {key:np.mean(value) for key,value in results.items()} if return_metrics_mean else results
-
-        elif model_name.startswith('AnEn'):
-            None
-        elif model_name.startswith('AnnCSGD'):
-            None
         
