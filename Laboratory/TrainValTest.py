@@ -3,7 +3,7 @@ import sys
 main_path = os.path.abspath(os.path.join(__file__,'..','..'))
 sys.path.append(main_path)
 import torch
-import wandb
+#import wandb
 import random
 import numpy as np
 import os
@@ -226,7 +226,7 @@ def parse_args():
     parser.add_argument('--PCA', action = 'store_true', help = 'Apply PCA along ensemble precipitations')
     parser.add_argument('--FeatSelec', action = 'store_true', help = 'Apply Feature selection')
     parser.add_argument('--DownSelec', action = 'store_true', help = 'Apply Down selection')
-    parser.add_argument('--RedFact', type=int, default = 1, help = 'Reduction factor(int) to Unet nºfilters per channel (default: 1, no reduction)')
+    parser.add_argument('--RedFact', type=int, default = 1, help = 'Reduction factor(int) to Unet number of filters (default: 1, no reduction)')
     return parser.parse_args()
 
 

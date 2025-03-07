@@ -4,3 +4,4 @@
 *.pt
 *.nc
 *.DS_Store
+results/*.npz
