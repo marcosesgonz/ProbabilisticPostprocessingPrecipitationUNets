@@ -10,7 +10,7 @@ import utils as u
 from Datasets import WRFdataset,MeteoCentersSplitter
 import argparse
 
-def fold_validation(name_experim,project_ref = 'StationsFoldValidation', epochs = 40, optimizer_name = 'adamw', use_weights = False, normalize_data = True, pca_data = True, feat_selec_data = False,
+def fold_validation(name_experim,project_ref = 'StationsFoldValidation', epochs = 40, optimizer_name = 'adamw', normalize_data = True, pca_data = True, feat_selec_data = False,
                      batch_size = 32, lr = 1e-3, reduct_factor = 1):
     
     wandb.login() #Log in in wandb
@@ -109,12 +109,12 @@ def fold_validation(name_experim,project_ref = 'StationsFoldValidation', epochs 
             for epoch in range(start_epoch, epochs):
                 train_ctrs_loss = u.train_model(net = net, tr_loader = train_data_loader, data = train_set,mask_centers_tr = mask_ctrs_tr, weights = None, bin_edges = None,
                                     optimizer = optimizer, device = device, lr_scheduler = lr_scheduler)
-                val_ctrs_loss, val_ctrs_val_mae, val_ctrs_val_mse, val_ctrs_val_bs = u.test_model(net = net,tst_loader = val_data_loader, data = val_set, mask_centers_tst = mask_ctrs_tst, device = device)
+                val_ctrs_loss, val_ctrs_val_bias, val_ctrs_val_mse, val_ctrs_val_bs = u.test_model(net = net,tst_loader = val_data_loader, data = val_set, mask_centers_tst = mask_ctrs_tst, device = device)
 
                 wandb.log({
                     'train_ctrs_tr_loss': train_ctrs_loss,
                     'val_ctrs_val_loss': val_ctrs_loss,
-                    'val_ctrs_val_mae': val_ctrs_val_mae,
+                    'val_ctrs_val_bias': val_ctrs_val_bias,
                     'val_ctrs_val_mse': val_ctrs_val_mse,
                     'val_ctrs_val_bs': val_ctrs_val_bs,
                     f'fold {fold_id + 1} epoch': epoch,
@@ -142,16 +142,21 @@ def fold_validation(name_experim,project_ref = 'StationsFoldValidation', epochs 
             net.load_state_dict(max_checkpoint['net'])
 
             print('Comprobación:')
-            val_ctrs_loss, val_mae_loss, val_mse, val_bs_loss = u.test_model(net = net,tst_loader = val_data_loader, data = val_set, mask_centers_tst = mask_ctrs_tst, device = device)
+            val_ctrs_loss, val_bias_loss, val_mse, val_bs_loss = u.test_model(net = net,tst_loader = val_data_loader, data = val_set, mask_centers_tst = mask_ctrs_tst, device = device)
             print(f'El val loss recargando el mejor modelo es {val_ctrs_loss} y se tiene guardado el valor {min_val_loss}')
             #Viendo el rendimiento del modelo en el conjunto de test y guardándolo en wandb
-            test_loss,test_mae_loss, test_mse_loss, test_bs_loss  = u.test_model(net = net,tst_loader = test_data_loader, data = test_set, mask_centers_tst = mask_ctrs_tst, device = device)
+            test_df  = u.test_model_df(net = net,tst_loader = test_data_loader, data = test_set, mask_centers_tst = mask_ctrs_tst, device = device)
+            test_df.to_csv(os.path.join(out_dir,f'test_results_fold{fold_id + 1}.csv'))
+            test_loss = test_df['crps'].mean()
+            test_bs_loss = test_df['bs0.1'].mean()
+            test_mse_loss = test_df['mse'].mean()
+            test_bias_loss = test_df['bias'].mean()
             print('------------------------------')
-            print(f'Final test results fold {fold_id + 1}. loss(crps): {test_loss} brier_score: {test_bs_loss} mae: {test_mae_loss}')
+            print(f'Final test results fold {fold_id + 1}. loss(crps): {test_loss} brier_score: {test_bs_loss} bias: {test_bias_loss}')
             print('------------------------------')
             wandb.run.summary[f'test_loss_fold{fold_id + 1}'] = test_loss
             wandb.run.summary[f'test_bs_loss_fold{fold_id + 1}'] = test_bs_loss
-            wandb.run.summary[f'test_mae_loss_fold{fold_id + 1}'] = test_mae_loss
+            wandb.run.summary[f'test_bias_loss_fold{fold_id + 1}'] = test_bias_loss
             wandb.run.summary[f'test_mse_loss_fold{fold_id + 1}'] = test_mse_loss
             final_test_losses_list.append(test_loss)
 

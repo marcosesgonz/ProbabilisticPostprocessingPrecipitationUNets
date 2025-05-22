@@ -1,155 +1,122 @@
-import numpy as np
 import pandas as pd
+import numpy as np
 import os
-import matplotlib.pyplot as plt
-import seaborn as sns
-
-#Change this boolean variable to switch between generalization results and overall forecasting results.
-COMPUTE_FIVE_FOLDS = True
-
+from arch.bootstrap import CircularBlockBootstrap
+import argparse
 
 class Bootstrap:
-    def __init__(self, data, labels=None):
+    def __init__(self, data):
         self.data = np.array(data)
-        self.labels = np.array(labels) if labels is not None else None
 
-    def compute_bootstraps(self, num_bootstraps, sample_size=None):
+    """def compute_bootstraps(self, num_bootstraps:int =1000, sample_size:int = None):
         if sample_size is None:
             sample_size = len(self.data)
-        bootstrap_means = np.array([
-            np.mean(np.random.choice(self.data, size=sample_size, replace=True)) 
+        boot_means = np.array([
+            np.mean(np.random.choice(self.data, size=sample_size, replace=True))
             for _ in range(num_bootstraps)
         ])
-        return bootstrap_means
+        return boot_means"""
+    
+    def compute_block_bootstraps(self, num_bootstraps=1000, block_size=24):
+        mbb = CircularBlockBootstrap(block_size, self.data)
+        results = [np.mean(data[0]) for data in mbb.bootstrap(num_bootstraps)]
+        return np.array(results)
 
-    def confidence_interval(self, bootstrap_means, confidence_level=0.95):
-        mean_value = np.mean(bootstrap_means)
-        lower_bound = np.percentile(bootstrap_means, (1 - confidence_level) / 2 * 100)
-        upper_bound = np.percentile(bootstrap_means, (1 + confidence_level) / 2 * 100)
-        return mean_value, lower_bound, upper_bound
+def compute_bootstrap_from_csv(csv_paths, model_names, reference_name="Ensemble",block_size = 10, num_bootstraps=1000):
+    assert len(csv_paths) == len(model_names), "CSV paths and model names must align"
 
-def obtain_results(compute_five_folds_results = False):
-    path_results = os.path.join(os.path.abspath(os.path.join(__file__,'..','..')),'results')
-    if compute_five_folds_results:
-        five_folds_results = np.load(os.path.join(path_results,'results_5folds.npz'))
-        overall_results = np.load(os.path.join(path_results,'results_overall.npz'))#Previously named 'New_results_overall.npz'
-        ensemble_fs_results = {key:value for key,value in overall_results.items() if 'ensemble_fs' in key}
+    #metrics = ['crps', 'bias', 'mae', 'mse', 'bs0.1', 'bs0.3', 'bs0.5', 'bs1', 'bs2', 'bs3', 'bs4']
+    metrics = ['crps', 'bias', 'mae', 'mse', 'bs0.1','bs0.3', 'bs0.5']
+    eps = 1e-3
+    all_data = {}
 
-        ordered_indices_five_folds = np.argsort(five_folds_results['center'])
-        ordered_indices_overall = np.argsort(overall_results['center'])
-        print(np.all(overall_results['center'][ordered_indices_overall] == five_folds_results['center'][ordered_indices_five_folds]))
+    # Load all CSVs into memory
+    for path, name in zip(csv_paths, model_names):
+        df = pd.read_csv(path)
+        df['Model'] = name
+        all_data[name] = df
+        if name != reference_name:
+            stations = df['center'].unique()
 
-        results = dict(five_folds_results) | dict(ensemble_fs_results)
-        final_results = {key:np.array(value)[ordered_indices_overall] if ('ensemble_fs' in key) else np.array(value)[ordered_indices_five_folds] for key,value in results.items()}
-        ordered_centers = final_results.pop('center')
-    else:
-        results = np.load(os.path.join(path_results,'results_overall.npz'))#Previously named 'New_results_overall.npz'
+    # Use 'Ensemble' as reference
+    reference_df = all_data[reference_name]
+    print(reference_df.columns)
+    #stations = reference_df['center'].unique()
 
-        print(len(results['center']),len(results['center_emos'])) #The first one is for unet/ensemble models. The second one for PredCSGD and AnEn.
-        print('Name differences:')
-        centers_unique = np.unique(results['center'])
-        emos_centers = results['center_emos']
-        emos_centers_unique = np.unique(emos_centers)
-        for center in centers_unique: #IF i put unique here, it goes toooo slow (why?)
-            if center not in emos_centers_unique:
-                print(center)
-        print('--------------------------'*3)
-        for emos_center in emos_centers_unique:
-            if emos_center not in centers_unique:
-                print(emos_center)
-
-        #Fixing differences
-        unet_ensemb_centers = [name.replace('/','_') for name in results['center']]
-        print('Corrected:',set(unet_ensemb_centers) == set(emos_centers))
-
-
-        ordered_indices_unet_ensemb = np.argsort(unet_ensemb_centers)
-        ordered_indices_emos = np.argsort(emos_centers)
-        final_results = {key:np.array(value)[ordered_indices_emos] if ('PredCSGD' in key or 'AnEn' in key or 'center_emos' == key or 'AnnCSGD' in key) else np.array(value)[ordered_indices_unet_ensemb] for key,value in results.items()}
-        ordered_centers = final_results.pop('center_emos')
-        ordered_unet_ensemb_centers = final_results.pop('center')
-        print(np.all([center_.replace('/','_') for center_ in ordered_unet_ensemb_centers] == ordered_centers))
-
-    final_results =  dict(final_results)
-    return final_results, ordered_centers
-
-
-def compute_bootstrap_results(final_results,compute_five_folds_results = True,
-                              num_bootstraps = 1000):
-    bootstrap_results = []
-    metrics = ['mae', 'mse', 'crps', 'bs']
-    if not compute_five_folds_results:
-        models = ['fullch', 'ds', 'pca', 'fs', 'AnEn','AnEn_fs', 'PredCSGD','PredCSGD_fs','AnnCSGD','AnnCSGD_fs','ensemble_fs']
-    else:
-        models  = ['fullch', 'ds', 'pca', 'fs','ensemble_fs']
+    results = []
 
     for metric in metrics:
-        reference_col = f"{metric}_ensemble"
-    
-        for model in models:
-            model_col = f"{metric}_{model}"
-            print(f'Computing bootstrap for {model_col}')
-            # Extract station-level values for the model and reference
-            reference_values = final_results[reference_col]
-            model_values = final_results[model_col]
-
-            for center in np.unique(ordered_centers):
-                mask_station = (center == ordered_centers)
-
-                # Apply bootstrapping for each model/metric
-                one_station_model_values = model_values[mask_station]
-                one_station_reference_values = reference_values[mask_station]
-                if (np.mean(one_station_reference_values) <= 1e-3):
-                    #print(metric, reference_result.index[reference_result == 0])
-                    one_station_model_values += 1e-3
-                    one_station_reference_values += 1e-3
-                #one_station_skill_scores = 1 - (one_station_model_values)/(np.mean(one_station_reference_values))
-
-                bootstrap = Bootstrap(data=one_station_model_values)
-                boot_means = bootstrap.compute_bootstraps(num_bootstraps=num_bootstraps)
-                if metric == 'mse': #Compute RMSE instead of MSE
-                    boot_skill_scores = 1 - np.sqrt(boot_means)/np.sqrt(np.mean(one_station_reference_values))
+        for model, df_model in all_data.items():
+            if model == reference_name and metric != 'bias':
+                continue  # Skip comparison to self
+            print(f"Bootstrapping {metric} - {model}")
+            for station in stations:
+                if metric != 'mae':
+                    ref_values = reference_df[reference_df['center'] == station][metric].dropna().values
+                    model_values = df_model[df_model['center'] == station][metric].dropna().values
                 else:
-                    boot_skill_scores = 1 - boot_means/np.mean(one_station_reference_values)
-                # Compute mean and confidence intervals from bootstrap samples
-                mean_value = boot_skill_scores.mean()
-                var_value = boot_skill_scores.var()
-                #mean_value, lower_ci, upper_ci = bootstrap.confidence_interval(boot_means)
-                raw_mean = 1 - (np.mean(one_station_model_values))/(np.mean(one_station_reference_values))
-                # Append bootstrap results for plotting
-                bootstrap_results.append({
-                    'Metric': metric if metric != 'mse' else 'rmse',
+                    # MAE = abs(Bias)
+                    ref_values = np.abs(reference_df[reference_df['center'] == station]['bias'].dropna().values)
+                    model_values = np.abs(df_model[df_model['center'] == station]['bias'].dropna().values)
+                assert len(ref_values) == len(model_values)
+
+                if len(ref_values) == 0:
+                    print(f"Warning: Station {station} doesn't have values")
+                    continue  # Skip if no valid data
+                
+                if metric == 'bias':
+                    #ref_values = reference_df[(reference_df['center'] == station) & (reference_df['prec(mm)'] > 0.1)][metric].dropna().values
+                    #model_values = df_model[(df_model['center'] == station) & (df_model['prec(mm)'] > 0.1) ][metric].dropna().values
+                    #metric_name = 'thr_' + metric
+                    #Calculate relative bias
+                    model_values = model_values/(df_model[df_model['center'] == station]['prec(mm)'].dropna().values + 0.1)
+                    metric_name = 'rel_' + metric
+
+ 
+                #if (np.mean(ref_values) <= eps) and metric != 'bias':
+                #In order to avoid numerical inestabilities
+                ref_values += eps
+                model_values += eps
+
+                bootstrap = Bootstrap(model_values)
+                boot_means = bootstrap.compute_block_bootstraps(num_bootstraps,block_size)
+
+                #0. brier score con percentil 99 para cada estación
+                if metric == 'mse':
+                    bootstraped_result = 1 - np.sqrt(boot_means) / np.sqrt(np.mean(ref_values))
+                    raw_result = 1 - np.sqrt(np.mean(model_values)) / np.sqrt(np.mean(ref_values))
+                    metric_name = 'rmsess'
+                elif metric == 'bias':
+                    #1. (observ > 0.1)
+                    #2. (pred - observ)/(observ + 0.1)  rel_bias
+                    bootstraped_result = boot_means 
+                    raw_result = np.mean(model_values)
+                    #metric_name = metric
+                else:
+                    bootstraped_result = 1 - boot_means / np.mean(ref_values)
+                    raw_result = 1 - np.mean(model_values) / np.mean(ref_values)
+                    metric_name = metric + 'ss'
+
+                results.append({
+                    'Metric': metric_name,
                     'Model': model,
-                    'Station':center,
-                    'Mean': mean_value,
-                    'Var': var_value,
-                    'RawMean': raw_mean
-                    #'Lower CI': lower_ci,
-                    #'Upper CI': upper_ci
+                    'Station': station,
+                    'Mean': bootstraped_result.mean(),
+                    'Var': bootstraped_result.var(),
+                    'RawMean': raw_result
                 })
 
-    #  Convert to DataFrame for easier analysis and visualization
-    bootstrap_results_df =  pd.DataFrame(bootstrap_results)
-    if compute_five_folds_results:
-        bootstrap_results_df['Model'].replace({'fs':'UNet-FS','ds':'UNet-DS','pca':'UNet-PCA','fullch':'UNet-All','ensemble_fs':'Ensemble-FS'},
-                                           inplace=True)
-    else:
-        bootstrap_results_df['Model'].replace({'AnEn_fs':'AnEn-FS','AnnCSGD_fs':'ANN-CSGD-FS','AnnCSGD':'ANN-CSGD','PredCSGD_fs':'PredCSGD-FS','fs':'UNet-FS','ds':'UNet-DS','pca':'UNet-PCA','fullch':'UNet-All','ensemble_fs':'Ensemble-FS'}, inplace=True)
-    
-    return bootstrap_results_df
+    return pd.DataFrame(results)
 
 def final_results_from_bootstraps(bootstrap_results_df):
     final_results = []
     for (metric, model), group in bootstrap_results_df.groupby(['Metric', 'Model']):
-        station_means = group['Mean']
-        station_variances = group['Var']#(group['Upper CI'] - group['Lower CI'])**2 / 4  # Approximation from CI width
-
-        # Compute weighted average and final confidence intervals
+        station_means = group['RawMean']
+        station_variances = group['Var']
         aggregated_mean = station_means.mean()
         aggregated_std = np.sqrt(station_variances.sum()) / len(station_variances)
         lower_ci = aggregated_mean - 1.96 * aggregated_std
         upper_ci = aggregated_mean + 1.96 * aggregated_std
-
         final_results.append({
             'Metric': metric,
             'Model': model,
@@ -157,92 +124,108 @@ def final_results_from_bootstraps(bootstrap_results_df):
             'Lower CI': lower_ci,
             'Upper CI': upper_ci
         })
-    
     return pd.DataFrame(final_results)
 
-final_results, ordered_centers = obtain_results(compute_five_folds_results=COMPUTE_FIVE_FOLDS)
-bootstrap_results_df = compute_bootstrap_results(final_results = final_results,
-                                                compute_five_folds_results=COMPUTE_FIVE_FOLDS,
-                                                num_bootstraps=2000)
-final_results_df = final_results_from_bootstraps(bootstrap_results_df = bootstrap_results_df)
+#
+csv_names_overall = [
+    'results_unet_all.csv',
+    'results_unet_ds.csv',
+    'results_unet_fs.csv',
+    'results_unet_pca.csv',
+    'results_ANNCSGD.csv',
+    'results_ANNCSGD_fs.csv',
+    'results_PredCSGD.csv',
+    'results_PredCSGD_fs.csv',
+    'results_AnEn.csv',
+    'results_AnEn_fs.csv',
+    'results_ensemble.csv',
+    'results_ensemble_fs.csv'
+]
+
+csv_names_5folds = [
+    'results_unet_all_5folds.csv',
+    'results_unet_ds_5folds.csv',
+    'results_unet_fs_5folds.csv',
+    'results_unet_pca_5folds.csv',
+    'results_ensemble.csv',
+    'results_ensemble_fs.csv'
+]
+
+csv_names_StatRed_fs = [os.path.join('models_results','station_reduction_results_11FS',result_file) for result_file in ['test_results_80.csv',
+                                                                                                                        'test_results_60.csv',
+                                                                                                                        'test_results_40.csv',
+                                                                                                                        'test_results_20.csv']]                 
+csv_names_StatRed_fs = csv_names_StatRed_fs + [os.path.join('models_results','overall','results_ensemble.csv')]
 
 
-if COMPUTE_FIVE_FOLDS:
-    # Plotting the aggregated results
-    metrics = ['mae', 'mse', 'crps', 'bs']
-    os.mkdir('plots/SpatialGeneralization') if not os.path.exists('plots/SpatialGeneralization') else None
-    for metric in metrics:
-        plt.figure(figsize=(12, 6))
-        # Overlay error bars for aggregated bootstrap mean and 95% CI
-        br_filtered = bootstrap_results_df[bootstrap_results_df['Metric'] == metric]
-        print(len(br_filtered['Mean']))
-        ci_filtered = final_results_df[final_results_df['Metric'] == metric]
-        model_order = br_filtered['Model'].unique()
-        sns.boxplot(
-            data=br_filtered, order= model_order,
-            x='Model', y='Mean', showfliers=False, whis=(10,90), width=0.4
-        )
-        # Overlay error bars for 95% confidence intervals
-        for x_pos, model in enumerate(model_order):  # Ensure same order
-            row = ci_filtered[ci_filtered['Model'] == model]
-            if not row.empty:  # Check if model exists in final_results_df
-                mean_val = row['Mean'].values[0]
-                lower_ci = row['Lower CI'].values[0]
-                upper_ci = row['Upper CI'].values[0]
+model_names_overall = [
+    'UNet-All',
+    'UNet-DS',
+    'UNet-FS',
+    'UNet-PCA',
+    'ANN-CSGD',
+    'ANN-CSGD-FS',
+    'PredCSGD',
+    'PredCSGD-FS',
+    'AnEn',
+    'AnEn-FS',
+    'Ensemble',
+    'Ensemble-FS'
+]
 
-                plt.errorbar(
-                    x_pos, mean_val,
-                    yerr=[[mean_val - lower_ci], [upper_ci - mean_val]],
-                    fmt='o', color='red', capsize=5, markersize=5
-                )
-        plt.grid(alpha = 0.5)
-        plt.hlines(0,-0.3, len(ci_filtered) - 0.5,'r',linestyles='dashed')
-        plt.xlim(-0.3, len(ci_filtered) - 0.7)
-        plt.ylabel('')
-        plt.yticks(fontsize = 13)
-        plt.xticks(ticks=range(len(model_order)), labels=model_order, rotation=0, fontsize=14)
-        plt.xlabel('')
-        plt.tight_layout()
-        plt.savefig(f'plots/SpatialGeneralization/BootStrap{metric.upper()}SkillScore_95CI_SpatGen_OtherAspRatio')
-        plt.title(f"Bootstrap Error Bars for {metric.upper()} Skill Scores (95% CI)")
-        plt.show() 
-else:
-    # Plotting the aggregated results
-    metrics = ['mae', 'mse', 'crps', 'bs']
-    os.mkdir('plots/Overall') if not os.path.exists('plots/Overall') else None
-    for metric in metrics:
-        plt.figure(figsize=(10, 7))
-        # Overlay error bars for aggregated bootstrap mean and 95% CI
-        br_filtered = bootstrap_results_df[bootstrap_results_df['Metric'] == metric]
-        print(len(br_filtered['Mean']))
-        ci_filtered = final_results_df[final_results_df['Metric'] == metric]
-        model_order = br_filtered['Model'].unique()
-        sns.boxplot(
-            data=br_filtered, order= model_order,
-            x='Model', y='RawMean', showfliers=False, whis=(5,95), width=0.4
-        )
-        # Overlay error bars for 95% confidence intervals
-        for x_pos, model in enumerate(model_order):  # Ensure same order
-            row = ci_filtered[ci_filtered['Model'] == model]
-            if not row.empty:  # Check if model exists in final_results_df
-                mean_val = row['Mean'].values[0]
-                lower_ci = row['Lower CI'].values[0]
-                upper_ci = row['Upper CI'].values[0]
+model_names_5folds = [
+    'UNet-All',
+    'UNet-DS',
+    'UNet-FS',
+    'UNet-PCA',
+    'Ensemble',
+    'Ensemble-FS'
+]
 
-                plt.errorbar(
-                    x_pos, mean_val,
-                    yerr=[[mean_val - lower_ci], [upper_ci - mean_val]],
-                    fmt='o', color='red', capsize=5, markersize=5
-                )
-        
-        plt.grid(alpha = 0.5)
-        plt.hlines(0,-0.3, len(ci_filtered) - 0.5,'r',linestyles='dashed')
-        plt.xlim(-0.3, len(ci_filtered) - 0.7)
-        plt.ylabel(metric.upper() + ('S' if metric.endswith('s') else 'SS'))
-        plt.xlabel('')
-        plt.xticks(ticks=range(len(model_order)), labels=model_order, rotation=20, fontsize=11)
-        plt.tight_layout()
-        if metric =='rmse':
-            plt.savefig(f'plots/Overall/BootStrap{metric.upper()}SkillScore_95CI_OverAll')
-        plt.title(f"Bootstrap Error Bars for {metric.upper()} Skill Scores (95% CI)")
-        plt.show()
+model_names_StatRed_fs = [
+    'UNet-FS-80',
+    'UNet-FS-20',
+    'UNet-FS-40',
+    'UNet-FS-60',
+    'Ensemble'
+
+]
+
+folder_5folds = os.path.join(os.path.dirname(__file__),'models_results','5folds')
+folder_overall = os.path.join(os.path.dirname(__file__),'models_results','overall')
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Execute Bootstrapping as it was done in our work.' \
+                                    'You will need to place the csv result files in the list of paths presented in the code (or create your own paths).')
+    parser.add_argument('--type_of_experiment', type=str,default = 'StatRed',
+                        choices=['Overall','FiveFolds','StatRed'], help='Which experiment you want to boot strap')
+    parser.add_argument('--block_size', type=int, default = 10, help='Block size used in bootstrapping')
+    parser.add_argument('--num_bootstraps', type=int, default = 1000, help='Number of boot straps done.')
+    args = parser.parse_args()
+    return args
+
+if __name__ == '__main__':
+    args = parse_args()
+    if args.type_of_experiment == 'FiveFolds':
+        csv_paths = [os.path.join(folder_5folds,csv_name) if 'ensemble' not in csv_name else os.path.join(folder_overall,csv_name) for csv_name in csv_names_5folds]
+        model_names = model_names_5folds
+    elif args.type_of_experiment == 'Overall':
+        csv_paths = [os.path.join(folder_overall, csv_name) for csv_name in csv_names_overall]
+        model_names = model_names_overall
+    elif args.type_of_experiment == 'StatRed':
+        csv_paths = [os.path.join(os.path.dirname(__file__), csv_name) for csv_name in csv_names_StatRed_fs]
+        model_names = model_names_StatRed_fs
+
+    bootstrap_df = compute_bootstrap_from_csv(csv_paths, model_names, reference_name="Ensemble", num_bootstraps=args.num_bootstraps,block_size= args.block_size)
+    final_df = final_results_from_bootstraps(bootstrap_df)
+
+    # Save results
+    bootstrap_df.to_csv(f"bootstrap_per_station_blocks{args.bloq_size}_{args.type_of_experiment}", index=False)
+    final_df.to_csv(f"bootstrap_aggregated_blocks{args.bloq_size}_{args.type_of_experiment}", index=False)
+
+#Bootstrapping reducing stations experiment
+"""
+bootstrap_df = compute_bootstrap_from_csv(csv_names_StatRed_fs, model_names_StatRed_fs, reference_name="Ensemble", num_bootstraps=500,block_size = bloqsize)
+final_df = final_results_from_bootstraps(bootstrap_df)
+bootstrap_df.to_csv(f'bootstrap_per_station_blocks{bloqsize}_StatRed.csv')
+final_df.to_csv(f'bootstrap_aggregated_blocks{bloqsize}_StatRed.csv')"""

@@ -6,8 +6,10 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
-from utils import CRPS_CSGDloss,calculate_brier_score,calculate_mse
+from utils import CRPS_CSGDloss,calculate_brier_score,calculate_mse_and_bias
 from copy import deepcopy
+import pandas as pd
+from properscoring import crps_ensemble,threshold_brier_score
 import random
 
 
@@ -59,7 +61,7 @@ class CSGD():
             return [m, s, d]
             
 
-    def crps(self, ground_truth: np.ndarray, params:list = None, return_mean:bool = True) -> (float | list):
+    def crps(self, ground_truth: np.ndarray, params:list = None, return_mean:bool = True):
         """
         Calculate the CRPS value.
 
@@ -92,7 +94,7 @@ class CSGD():
         else:
             return list(loss)
     
-    def mse(self, ground_truth: np.ndarray, params:list = None, return_mean = True) -> (float | list): 
+    def mse(self, ground_truth: np.ndarray, params:list = None, return_mean = True): 
         if params is None:
             print('Calculating initial values') if self.verbose else None
             mean, std_dev, shift = self.calc_initial_values(ground_truth)
@@ -112,7 +114,7 @@ class CSGD():
         else:
             return list(mse)
     
-    def mae(self, ground_truth: np.ndarray, params:list = None, return_mean:bool = True) -> (float | list):
+    def mae(self, ground_truth: np.ndarray, params:list = None, return_mean:bool = True):
         if params is None:
             print('Calculating initial values') if self.verbose else None
             mean, std_dev, shift = self.calc_initial_values(ground_truth)
@@ -136,6 +138,31 @@ class CSGD():
         else: 
             return list(mae)
     
+    def bias(self, ground_truth: np.ndarray, params:list = None, return_mean:bool = True) :
+        if params is None:
+            print('Calculating initial values') if self.verbose else None
+            mean, std_dev, shift = self.calc_initial_values(ground_truth)
+        else:
+            mean, std_dev, shift = params
+        #print(f'mean {mean} std {std_dev} shift {shift}')
+        shape = (mean**2) / (std_dev**2)
+        scale = (std_dev**2) / (mean)
+        
+        cdf_gamma = gamma.cdf(shift, shape, scale = scale)
+        expected_value = mean * (1 - cdf_gamma) * (1 - gamma.cdf(shift, shape + 1, scale = scale)) - shift * (1 - cdf_gamma)**2
+        #expected_value = np.round(expected_value,decimals = 2)
+        #print(f'Expected value: {expected_value}')
+        #print(f'shape {shape} shift {shift} scale {scale} mean {mean}')
+        #print(f'Expected value v2: {gamma.mean(shape, loc = shift, scale = scale)}')
+        #expected_value = np.round(expected_value, decimals = 1)
+        bias =  (expected_value - ground_truth)
+        
+        if return_mean:
+            return np.mean(bias)
+        else: 
+            return list(bias)
+    
+    
     def brier_score(self, ground_truth: np.ndarray, params:list = None, threshold = 0.1, return_mean:bool = True):
         if params is None:
             print('Calculating initial values in order to compute brier score') if self.verbose else None
@@ -152,7 +179,7 @@ class CSGD():
             cdf_gamma_at_thr = gamma.cdf(shift + threshold, shape, scale=scale)  # Broadcast computation
             brier_score = (cdf_gamma_at_thr - target_binarized) ** 2  # Element-wise operation
 
-            return np.mean(brier_score, axis=1) if return_mean else brier_score.tolist()
+            return np.mean(brier_score, axis=1) if return_mean else brier_score
         else:
             target_binarized = ground_truth <= threshold
             cdf_gamma_at_thr = gamma.cdf(shift + threshold, shape, scale = scale)
@@ -223,7 +250,7 @@ class CSGD():
         self.fitted_params = res.x
         return res.x
     
-    def predict(self, ground_truth: np.ndarray, metric = 'crps') -> float:
+    def predict(self, ground_truth: np.ndarray, metric = 'crps'):
         """
         Predict CRPS using fitted parameters.
 
@@ -244,7 +271,7 @@ class CSGD():
             return  (crps, mae, mse, brier_score)
 
 class PredictiveCSGD():
-    def __init__(self, params = None, forecast_climat_mean = None, climat_params = None, verbose = True) -> None:
+    def __init__(self, params = None, forecast_climat_mean = None, climat_params = None, verbose = True):
         self.csgd = CSGD(verbose = verbose)
         self.verbose = verbose
         self.fitted_params = params
@@ -349,9 +376,9 @@ class PredictiveCSGD():
             mean, std, shift = self.obtain_defining_parameters(ground_truth, wrf_ensemble, self.forecast_climat_mean, self.fitted_params, self.fitted_climat_params)
             crps = self.csgd.crps(ground_truth = ground_truth, params = [mean, std, shift], return_mean = return_mean)
             mse = self.csgd.mse(ground_truth, params = [mean, std, shift], return_mean = return_mean)
-            mae = self.csgd.mae(ground_truth, params = [mean, std, shift], return_mean = return_mean)
+            bias = self.csgd.bias(ground_truth, params = [mean, std, shift], return_mean = return_mean)
             brier_score = self.csgd.brier_score(ground_truth, [mean, std, shift], return_mean = return_mean, threshold=bs_threshold)
-            return crps, mae, mse, brier_score
+            return crps, bias, mse, brier_score
         else:
             raise NotImplementedError
         
@@ -431,10 +458,6 @@ class ensembleCSGD():
         return self.crps(ground_truth, wrf_ensemble, params = self.fitted_params)
     
 
-import numpy as np
-import pandas as pd
-from properscoring import crps_ensemble,threshold_brier_score
-
 class AnalogEnsemble:
     def __init__(self, weights = None, n_members = None, t_window = 3, X_train = None, y_train = None):
         self.best_weights = weights
@@ -473,16 +496,7 @@ class AnalogEnsemble:
         neigb_indices[neigb_indices >= len(X)] = len(X) - 1
 
         return X.iloc[neigb_indices].values
-        """
-        if self.t_window == 3:
-            if i == 0:  # Si estamos en el primer elemento, no hay t-1, así que duplicamos t
-                return np.array([X.iloc[i].values, X.iloc[i].values, X.iloc[i+1].values])
-            elif i == len(X) - 1:  # Si estamos en el último elemento, no hay t+1, así que duplicamos t
-                return np.array([X.iloc[i-1].values, X.iloc[i].values, X.iloc[i].values])
-            else:
-                return np.array([X.iloc[i-1].values, X.iloc[i].values, X.iloc[i+1].values])
-        elif self.t_window == 5:
-        """
+
 
     def _grid_search(self, X_train, y_train, X_val, y_val, n_members_options, weights_options):
         """
@@ -571,7 +585,24 @@ class AnalogEnsemble:
         print(f"Mejores pesos: {self.best_weights}")
         print(f"Mejor número de miembros: {self.best_n_members}")
 
-    def predict(self, X_test, y_test, return_mean = True):
+    def obtain_analogues(self, X_test, y_test):
+        n = len(X_test)
+        analogues_pred = []
+        for i in range(n):
+            prediccion_actual = self._obtain_neighbourhood(X_test,i)
+            observ_actual = y_test.iloc[i] 
+            # Calcular distancias usando los mejores pesos ajustados
+            distancias = self._calc_dist(prediccion_actual, self.hist_predicts, self.best_weights)
+
+            # Seleccionar los mejores análogos
+            indices_analogos = np.argsort(distancias)[:self.best_n_members]
+
+            analogues_pred.append(self.hist_observs[indices_analogos])
+        
+        analogues_pred = np.array(analogues_pred) #Shape: [N,n_members]
+        return analogues_pred
+
+    def predict(self, X_test, y_test, return_mean = True, bs_threshold = 1):
         """
         Realiza la predicción para un nuevo conjunto de datos usando los mejores parámetros ajustados.
         :param X_train: Conjunto de predicciones históricas (entrenamiento).
@@ -581,9 +612,9 @@ class AnalogEnsemble:
         """
         #ensemble_predictions = []
         if return_mean:
-            metrics = np.array([0,0,0,0,0,0,0,0], dtype = np.float64)
+            metrics = np.array([0,0,0,0], dtype = np.float64)
         else:
-            crps_list, mae_list, mse_list, bs_list = [],[],[],[]
+            crps_list, bias_list, mse_list, bs_list = [],[],[],[]
         n = len(X_test)
         for i in range(n):
             prediccion_actual = self._obtain_neighbourhood(X_test,i)
@@ -598,23 +629,28 @@ class AnalogEnsemble:
             # Predecir como el promedio de las observaciones análogas
             prediccion_anen = np.mean(self.hist_observs[indices_analogos])
             
-            mse = (prediccion_anen - observ_actual)**2
-            mae = np.sqrt(mse) 
+            bias = (prediccion_anen - observ_actual)
+            mse = bias**2
             crps = crps_ensemble(observ_actual,self.hist_observs[indices_analogos])
-            bs = threshold_brier_score(observ_actual, self.hist_observs[indices_analogos], threshold = 0.1)
+            bs = threshold_brier_score(observ_actual, self.hist_observs[indices_analogos], threshold = bs_threshold)
 
             if return_mean:
-                metrics += np.array([crps, mae, mse, bs])
+                metrics += np.array([crps, bias, mse, bs])
             else:
                 crps_list.append(crps)
-                mae_list.append(mae)
+                bias_list.append(bias)
                 mse_list.append(mse)
                 bs_list.append(bs)
         if return_mean:
             metrics /= n
             return metrics
         else:
-            return crps_list, mae_list, mse_list,bs_list
+            crps_final = np.array(crps_list)
+            bias_final = np.array(bias_list)
+            mse_final = np.array(mse_list)
+            bs_final =  np.array(bs_final)
+            bs_final = bs_final if not isinstance(bs_threshold,(tuple,list)) else np.moveaxis(bs_final,-1,0)
+            return crps_final, bias_final, mse_final, bs_final
 
 
 class ANNCSGD(nn.Module):
@@ -697,7 +733,7 @@ class ANNCSGD(nn.Module):
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
         # Initialize loss function
-        crps_loss = self.loss_fn()
+        crps_loss = self.loss_fn(mean_regularitazion=False)
 
         # Track the best model
         best_val_loss = float('inf')
@@ -769,7 +805,7 @@ class ANNCSGD(nn.Module):
             if self.verbose:
                 print(f"Best model restored with Validation Loss: {best_val_loss:.4f}")
 
-    def predict(self, wrf_ensemble_test, ground_truth_test, return_mean = True):
+    def predict(self, wrf_ensemble_test, ground_truth_test, return_mean = True, bs_threshold = 1):
         """
         Predict mean, std, and shift for new data.
 
@@ -785,11 +821,13 @@ class ANNCSGD(nn.Module):
         ground_truth_test = torch.tensor(ground_truth_test, dtype=torch.float32)
 
         self.eval()  # Set the model to evaluation mode
-        crps_loss =self.loss_fn(return_mean = return_mean)
+        crps_loss =self.loss_fn(return_mean = return_mean, mean_regularitazion=False)
         with torch.no_grad():
             output = self(wrf_ensemble_test)
             crps = crps_loss(output,ground_truth_test)
-            mse,mae = calculate_mse(output,ground_truth_test, return_mean = return_mean)
-            brier_score = calculate_brier_score(output,ground_truth_test, return_mean = return_mean, threshold=0.1)
+            mse,bias = calculate_mse_and_bias(output,ground_truth_test, return_mean = return_mean,
+                                              mean_regularization=False)
+            brier_score = calculate_brier_score(output,ground_truth_test, return_mean = return_mean,
+                                                mean_regularization=False, threshold=bs_threshold)
 
-        return crps, mae, mse, brier_score
+        return crps, bias, mse, brier_score

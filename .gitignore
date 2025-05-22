@@ -5,3 +5,5 @@
 *.nc
 *.DS_Store
 results/*.npz
+*.png
+*metrics_per_hour.py

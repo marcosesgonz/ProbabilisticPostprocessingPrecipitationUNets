@@ -11,11 +11,10 @@ To reproduce the experiments, you need to download the required data and models:
 1. **Download Data**: All required data can be downloaded from [Google Drive](https://drive.google.com/drive/folders/1FEzji7PpGvqXzRPBh961NDqujRgPf7JZ?usp=sharing).
    - Place the station information CSV file, `MixtureNewAemetAgrocab_PrHourly20190715_20200821.csv`, inside the `data/` folder.
    - Place the unzipped `.rar` data from the ensemble WRF set inside the folder `data/temp_wrf_data_for_model`. This data corresponds to a numpy (`.npy`) file for each day of data. These numpy files were preprocessed from netcdf archives. The script `data_manipulation_scripts/example_numpy_from_netcdf.py` shows an example of preprocessing one day data of a WRF simulation from netcdf to a numpy file. To run this script, place the file `2019104_GFS_ysutr.nc` inside `data/example_netcdf_data/` folder.
-   - The files `results_5folds.npz` and `results_overall.npz` contain all the raw metric results presented in the paper. Place these files inside the `results/` folder to run bootstrapped results using the `metric_evaluations_predictive_performance/computing_bootstraps.py` script.
 
-2. **Pretrained Models**: To use pretrained models (`.pt` files), place them in their corresponding folder under `results/unet_weights`.
+2. **Pretrained Models**: To use pretrained models (`.pt` files), place them in their corresponding folder under `results/unet_weights`. The benchmark model weights are already placed in the github repository.
 
-3. **Classical Methods Data**: To generate data for classical methods, run the script `data_manipulation_scripts/create_csv_for_classic_methods.py`. The scripts for evaluating classical methods are located in `Laboratory/Calculation_classical_methods.ipynb`.
+3. **Classical Methods Data**: To generate data for classical methods, run the script `data_manipulation_scripts/create_csv_for_classic_methods.py`. 
 
 ---
 
@@ -27,16 +26,11 @@ A `requirements.txt` file is provided as a guideline for the dependencies needed
 
 ### Replicating paper results
 
-- Users can now reproduce the UNet results using the "metric_evaluator" class located at `metric_evaluations_predictive_performance/metric_evaluator.py`. To use this class, refer to the comments inside the eval() method. Below is an example of how to evaluate generalization results for the UNet-FS model:
-  
-  ```
-  from metric_evaluator import evaluator
-  eval = evaluator()
-  #Generalization results for UNet-FS model
-  results_UNet_fs  = eval.eval(model_name='unet_fs',return_params=False,results = True,return_metrics_mean=False, meteo_centers_five_folds=True)
-  ```
-- In order to replicate bootstrapped results, run `metric_evaluations_predictive_performance/computing_bootstraps.py`. This script reads result files stored in the `results` folder.
+- Users can now reproduce the UNet results using the "metric_evaluator" class located at `metric_evaluations_predictive_performance/metric_evaluator.py`. To use this class, refer to the comments inside this file. 
+
 - Ensure you download the pretrained models and data from the provided Google Drive link before running the script.
+
+- In order to see how the bootstrapped was done, see `metric_evaluations_predictive_performance/computing_bootstraps.py`. This script reads csv result files obtained from the metric_evaluator class() or directly from training scripts. It is necessary to introduce the paths of result files.
 
 ### Training Your Own Model:
 - **Forecasting Performance Experiments**:
@@ -50,12 +44,13 @@ A `requirements.txt` file is provided as a guideline for the dependencies needed
 
   - Classical Methods:
     - Training classical methods can be reproduced by running the cells in `Laboratory/Calculation_classical_methods.ipynb`.
-    - Note: Classic model weights will be available upon request. However, these models can be trained and evaluated using `Laboratory/Calculation_classical_methods.ipynb` script mentioned above.
 
 - **Spatial Generalization Performance Experiments**:
   - Use the script `Laboratory/FiveFoldsStations_DS.py` for evaluating the Down Selection (DS) approach.
   - Use the script `Laboratory/FiveFoldsStations.py` for evaluating other UNet methods.
 
+- **Reducing Stations Experiments**:
+  - Use the script `Laboratory/ReducingStations.py` for evaluating other UNet methods.
 ---
 
 ## Note on Reproducibility

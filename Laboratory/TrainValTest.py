@@ -3,7 +3,7 @@ import sys
 main_path = os.path.abspath(os.path.join(__file__,'..','..'))
 sys.path.append(main_path)
 import torch
-#import wandb
+import wandb
 import random
 import numpy as np
 import os
@@ -157,9 +157,9 @@ def execute_model(project_ref, name_experim,  epochs = 35, optimizer = 'sgd', us
         patience = 10 # Number of waiting epochs with no improvement in results until execution stops
         patience_counter = 0
         for epoch in range(start_epoch, epochs):
-            train_loss = u.train_model_all_stations(net = net, tr_loader = train_data_loader, data = train_set, weights = y_weights, bin_edges = y_bin_edges,
+            train_loss = u.train_model(net = net, tr_loader = train_data_loader, data = train_set, weights = y_weights, bin_edges = y_bin_edges,
                                                 optimizer = optimizer, device = device, lr_scheduler = lr_scheduler)
-            val_loss, val_mae_loss,val_mse_loss, val_bs_loss = u.test_model(net = net,tst_loader = val_data_loader, data = val_set, device = device)
+            val_loss, val_bias_loss,val_mse_loss, val_bs_loss = u.test_model(net = net,tst_loader = val_data_loader, data = val_set, device = device)
 
             # Registering values in wandb
             wandb.log({
@@ -167,7 +167,7 @@ def execute_model(project_ref, name_experim,  epochs = 35, optimizer = 'sgd', us
                 'val_crps_loss': val_loss,
                 'val_bs_loss': val_bs_loss,
                 'val_mse_loss': val_mse_loss,
-                'val_mae_loss': val_mae_loss,
+                'val_bias_loss': val_bias_loss,
             }, step=epoch)
 
             checkpoint = {
@@ -198,18 +198,23 @@ def execute_model(project_ref, name_experim,  epochs = 35, optimizer = 'sgd', us
         net.load_state_dict(max_checkpoint['net'])
 
         print('Checking:')
-        val_loss, val_mae_loss,val_mse_loss, val_bs_loss = u.test_model(net = net,tst_loader = val_data_loader, data = val_set, device = device)
+        val_loss, val_bias_loss,val_mse_loss, val_bs_loss = u.test_model(net = net,tst_loader = val_data_loader, data = val_set, device = device)
         print(f'Val loss reloading best model is: {val_loss}. The value saved is: {min_val_loss}')
         
         #Showing results in test sets and registering it in wandba
-        test_loss,test_mae_loss, test_mse_loss, test_bs_loss = u.test_model_all_stations(net = net,tst_loader = test_data_loader, data = test_set, device = device)
+        test_df= u.test_model_df(net = net,tst_loader = test_data_loader, data = test_set, device = device, bs_thresholds=[0.1,0.3,0.5,1])
+        test_df.to_csv(os.path.join(out_dir,'test_results.csv'))
+        test_loss = test_df['crps'].mean()
+        test_bs_loss = test_df['bs0.1'].mean()
+        test_mse_loss = test_df['mse'].mean()
+        test_bias_loss = test_df['bias'].mean()
         print('------------------------------')
-        print(f'Final test results. loss(crps): {test_loss} brier_score: {test_bs_loss} MAE: {test_mae_loss}')
+        print(f'Final test results. loss(crps): {test_loss} brier_score: {test_bs_loss} bias: {test_bias_loss}')
         print('------------------------------')
         wandb.run.summary['test_loss'] = test_loss
         wandb.run.summary['test_bs_loss'] = test_bs_loss
         wandb.run.summary['test_mse_loss'] = test_mse_loss
-        wandb.run.summary['test_mae_loss'] = test_mae_loss
+        wandb.run.summary['test_bias_loss'] = test_bias_loss
 
 
 def parse_args():
